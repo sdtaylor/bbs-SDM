@@ -42,11 +42,12 @@ weather=read.csv(paste(dataFolder, 'BBS_weather.csv', sep='')) %>%
   
 
 timeRange=c(1971:2014)
-windowSizes=c(1,2,3,4,5,6,7,8,9,10,11,12,13,14)
+#windowSizes=c(1,2,3,4,5,6,7,8,9,10,11,12,13,14)
+windowSizes=c(5,10)
 
 #These are the offsets which scooch the analysis forward n years at a time to average out climatic variability
 #0 means no offset. 
-yearlyOffsets=0:10 #There is no check for setting this so high there is no room for the large window sizes.
+yearlyOffsets=0:0 #There is no check for setting this so high there is no room for the large window sizes.
 
 
 #Some records are of genus only and "unidentified". Get rid of those.
@@ -153,8 +154,6 @@ siteChanges=data.frame(changeType=c('absent-absent','present-present','absent-pr
 #####################################################################
 #Build site information for each setID
 #######################################################################
-#If your thought the last section was confusing, don't even bother
-#reading this one. 
 #Filter sites based on coverage within a particular windowID
 #calculate weather data for all those sites. 
 siteDataMatrix=data.frame()
@@ -238,51 +237,6 @@ processSpDataToWindowSize=function(spData, thisSetID){
   return(x)
 }
 
-####################################################################
-#Process model temporal validation accuracy from Rapacciuolo et al. 2014
-processAccTV=function(results){
-
-  #Calculate gain and loss curves
-  Gains_curve=glm(gains ~ ns(deltaMweighted, df = 2), weights=rep(1, nrow(filter(results, changeType!='present-present'))), family=binomial,
-                  data=filter(results, changeType!='present-present'))
-  Losses_curve=glm(losses ~ ns(deltaMweighted, df = 2), weights=rep(1, nrow(filter(results, changeType!='absent-absent'))), family=binomial,
-                  data=filter(results, changeType!='absent-absent'))
-  
-  #This fits the curve to the actual site data. ah la fig. 3a
-  Simulated_gain <- predict(Gains_curve, newdata = results, se.fit = FALSE, type = "response")
-  Simulated_loss <- predict(Losses_curve, newdata = results, se.fit = FALSE, type = "response")
-  
-  #the model y
-  yModel=Simulated_gain-Simulated_loss
-  
-  #Pull out deltaMweighted for clarity
-  deltaMweighted=results$deltaMweighted
-  
-  #Now the actual equation #2
-  #In eq. 2 there is a yIdeal. That is a 1:1 line with deltaMweighted. So using deltaMweighted in place
-  #of that is correct. 
-  numerator = sum( abs(yModel - deltaMweighted) * deltaMweighted )
-  divisor   = sum( deltaMweighted)
-  #return(1 - (numerator/ divisor) )
-  return( 1 - weighted.mean(abs(yModel - deltaMweighted), abs(deltaMweighted) ) )
-}
-
-###################################################################
-#Process correct classification rate on changed or stable sites separtely
-#( of sites that are absent-present, or present-absent, true-positives + true-negatives / total)
-processCCR=function(results, type){
-  if(type=='changed'){
-    x=results %>%
-      filter(changeType %in% c('absent-present','present-absent'))
-  } else if(type=='stable'){
-    x=results %>%
-      filter(changeType %in% c('present-present','absent-absent'))
-  }
-  ccr=sum(with(x, T2_actual==T2_prediction)) / nrow(x)
-}
-
-
-
 #####################################################################
 #Model to use. Details for each one are in bbsDMModels.R
 modelsToUse=c('gbm')
@@ -356,66 +310,20 @@ finalDF=foreach(thisSpp=unique(occData$Aou)[1:3], .combine=rbind, .packages=c('d
                     dplyr::select(presence, siteID, modelName, prediction) %>% 
                     rename(T1_actual=presence, T1_prob=prediction), by=c('siteID','modelName'))
     
-    
-    #The raw results of all models/species/sites
-    rawModelResults = modelResults %>%
-      mutate(Aou=thisSpp, windowSize=thisWindowSize) 
-    
-    #####################
-    #Now start calculation temporal validation curve accuracy
-    #Start with the 1st parameters which can be calculated rowwise
-    #Calculate deltaM and deltaMweighted
-    modelResults = modelResults %>%
-      mutate(deltaM = T2_prob-T1_prob) %>%
-      mutate(deltaMweighted = ifelse( deltaM<0, deltaM/T1_prob, 
-                                      ifelse(deltaM==0, 0, 
-                                             deltaM/(1-T1_prob))))
-    
-    #Define stable and changed sites
-    modelResults = modelResults %>%
-      left_join(siteChanges, by=c('T1_actual','T2_actual'))
-    
-    #Isolate gains (absent-presnt) and losses (present-absent)
-    modelResults = modelResults %>%
-      mutate(gains= ifelse(changeType=='absent-present', 1,0), 
-             losses= ifelse(changeType=='present-absent',1,0))
-    
-    #T2 binary prediction for ccr calculation
-    modelResults = modelResults %>%
-      mutate(T2_prediction= ifelse(T2_prob>0.5, 1, 0))
-    
-    accuracyTV=data.frame()
-    #Now get the accuracy for each windowID and model
-    #This requires fitting some glm's, so it needs to be inside for loops
-    for(thisWindowID in unique(modelResults$windowID)){
-      for(thisModelName in unique(modelResults$modelName)){
-        
-        #Processing of some results fail because of low variation in prediction scores, or low gains/losses. If that happens
-        #mark it as -1
-        thisAccuracy=try( processAccTV( filter(modelResults, windowID==thisWindowID, modelName==thisModelName)) , silent = TRUE)
-        if(class(thisAccuracy)=='try-error'){ thisAccuracy=-1}
-        
-        thisCCRstable=processCCR(filter(modelResults, windowID==thisWindowID, modelName==thisModelName), type='stable' )
-        thisCCRchanged=processCCR(filter(modelResults, windowID==thisWindowID, modelName==thisModelName), type='changed' )
-        
-        thisAccuracy=data.frame(accTV=thisAccuracy,
-                                modelName=thisModelName,
-                                thisWindowID=thisWindowID,
-                                ccrStable=thisCCRstable,
-                                ccrChanged=thisCCRchanged)
-        
-        accuracyTV = accuracyTV %>%
-          bind_rows(thisAccuracy)
-      }
-    }
 
-    #Include the window size and setID in the final accuracy results and add to this spp results
-    accuracyTV$windowSize=thisWindowSize
-    accuracyTV$setID=thisSetID
-    accuracyTV$Aou=thisSpp
+    
+    #Get temporal validation plot accuracy from Rapacciuolo et al. 2014
+    #Not using this at the moment. So model results will be the predictions and 
+    #observations for every species/site/model/windowsize. 
+    #source('bbsSDM-temporal_validaton_accuracy.R')
+    #modelResults=getAccuracyTV(modelResults)
 
-    #Add this window size iteration to results for this species.
-    thisSppResults=bind_rows(thisSppResults, rawModelResults)
+    #Species and window size for this set of models. 
+    modelResults = modelResults %>%
+      mutate(Aou=thisSpp, windowSize=thisWindowSize, setID=thisSetID) 
+    
+    #Add this iteration to results for this species.
+    thisSppResults=bind_rows(thisSppResults, modelResults)
   } 
   #This gets returned to be added to the finalDF dataframe. 
   return(thisSppResults)
