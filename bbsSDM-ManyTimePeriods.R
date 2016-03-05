@@ -79,65 +79,13 @@ siteList= occData %>%
   distinct() %>%
   mutate(Year=as.factor(Year))
 
-#################################################################
-#From raw prism monthly values calculate all the bioclim variables.
-###################################################################
-#To calculate some of the bioclim variables. like "precip in coldest month"
-maxMinCombo=function(vec1,vec2,max=TRUE){
-  #Return the value in vec1 in the position where
-  #vec2 is either highest or lowest
-  if(max){
-    return(vec1[which.max(vec2)])
-  } else {
-    return(vec1[which.min(vec2)])
-  }
-}
+#bioclim values for all bbs routes from PRISM data.
+source('get_prism_data.R')
+bioclimData=get_bioclim_data()
 
-#prism data for all sites gotten from another script, incorperate later
-prismDataFile='./prism_bbs_data.csv'
-if(file.exists(prismDataFile)){
-  prism_bbs_data=read.csv(prismDataFile) 
-} else {
-  stop('Prism file not found. Go load it')
-}
-prism_bbs_data=filter(prism_bbs_data, !is.na(tmin))
-
-quarterInfo=data.frame(month=1:12, quarter=c(1,1,1,2,2,2,3,3,3,4,4,4))
-bioclimQuarterData= prism_bbs_data %>%
-  left_join(quarterInfo, by='month') %>%
-  group_by(siteID, year, quarter) %>%
-  summarize(precip=sum(ppt), temp=mean(tmean)) %>%
-  ungroup() %>%
-  group_by(siteID,year) %>%
-  summarize(bio8=maxMinCombo(temp, precip, max=TRUE),
-            bio9=maxMinCombo(temp, precip, max=FALSE),
-            bio10=max(temp),
-            bio11=min(temp),
-            bio16=max(precip),
-            bio17=min(precip),
-            bio18=maxMinCombo(precip, temp, max=TRUE),
-            bio19=maxMinCombo(precip, temp, max=FALSE)) %>%
-  ungroup()
-
-bioclimData=prism_bbs_data %>%
-  group_by(siteID, year) %>%
-  mutate(monthlyTempDiff=tmax-tmin) %>%
-  summarize(bio1=mean(tmean),
-            bio2=mean(monthlyTempDiff),
-            bio4=sd(tmean)*100,
-            bio5=maxMinCombo(tmax,tmean,max=TRUE),
-            bio6=maxMinCombo(tmin,tmean,max=FALSE),
-            bio12=sum(ppt),
-            bio13=max(ppt),
-            bio14=min(ppt)) %>%
-  ungroup() %>%
-  mutate(bio7=bio5-bio6,
-         bio3=(bio2/bio7)*100) %>%
-  full_join(bioclimQuarterData, by=c('siteID','year'))
-
-
-rm(bioclimQuarterData, quarterInfo, maxMinCombo, prism_bbs_data)
-
+#Some sites have na values.
+bioclimData = bioclimData %>%
+  filter(!is.na(bio1))
 
 
 ###################################################################
