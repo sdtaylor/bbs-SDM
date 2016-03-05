@@ -4,10 +4,16 @@ library(doParallel)
 library(magrittr)
 library(stringr)
 
+####################################################################################
+#Adjustments based on where this script is being run.
+#################################################################################
 #If running this on hipergator, use "Rscript <thisScript> hipergator" 
+#if running locally use 'Rscript <thisScript> local'
+#if running in rstudio nothing special is needed. 
+
 args=commandArgs(trailingOnly = TRUE)
 
-#If the 1st argument is na (ie, no argument), then this script is being run inside rstudo
+#If the 1st argument is na (ie, no argument), then this script is being run inside rstudio
 if(is.na(args[1])){
   print('Running locally (probably rstudio)')
   dataFolder='~/data/bbs/'
@@ -15,6 +21,7 @@ if(is.na(args[1])){
   resultsFile=paste('./results/bbsSDMResults.csv',sep='')
   #rawResultsFile='./results/bbsSDMResultsRaw.csv'
   rawResultsFile='./results/bbsSDMResultsRaw.sqlite'
+
 } else if(args[1]=='local') {
   print('Running locally (probably cli)')
   dataFolder='~/data/bbs/'
@@ -22,7 +29,6 @@ if(is.na(args[1])){
   resultsFile=paste('./results/bbsSDMResults.csv',sep='')
   rawResultsFile='./results/bbsSDMResultsRaw.csv'
   
-#If not na, then check to see if the 1st arg means running in the ufl hpc.  
 } else if(args[1]=='hipergator') {
   print('Running on hipergator')
   dataFolder='/scratch/lfs/shawntaylor/data/bbs/'
@@ -32,6 +38,31 @@ if(is.na(args[1])){
   
 }
 
+####################################################################
+#Configuration
+####################################################################
+
+#Years in the data to consider.
+timeRange=c(1971:2014)
+
+#Window sizes to use.
+#windowSizes=c(1,2,3,4,5,6,7,8,9,10,11,12,13,14)
+windowSizes=c(5,10)
+
+#These are the offsets which scooch the analysis forward n years at a time to average out climatic variability
+#0 means no offset. 
+#There is no check for setting this so high there is no room for the large window sizes.
+yearlyOffsets=0:0
+
+#Model to use. Details for each one are in bbsDMModels.R
+modelsToUse=c('gbm')
+
+# Formula to pass to models
+modelFormula=as.formula('presence ~ bio1+bio2+bio4+bio5+bio6+bio7+bio8+bio9+bio10+bio11+bio12+bio13+bio14+bio16+bio17+bio18+bio19')
+
+#################################################################
+#Data loading and pre-processing
+################################################################
 
 counts=read.csv(paste(dataFolder, 'BBS_counts.csv', sep=''))
 routes=read.csv(paste(dataFolder, 'BBS_routes.csv', sep=''))
@@ -40,18 +71,8 @@ weather=read.csv(paste(dataFolder, 'BBS_weather.csv', sep='')) %>%
   mutate(siteID=paste(countrynum, statenum, route,sep='-')) %>%
   dplyr::select(siteID,Year=year, RPID=rpid,runtype)
   
-
-timeRange=c(1971:2014)
-#windowSizes=c(1,2,3,4,5,6,7,8,9,10,11,12,13,14)
-windowSizes=c(5,10)
-
-#These are the offsets which scooch the analysis forward n years at a time to average out climatic variability
-#0 means no offset. 
-yearlyOffsets=0:0 #There is no check for setting this so high there is no room for the large window sizes.
-
-
 #Some records are of genus only and "unidentified". Get rid of those.
-#Or maybe find someway to incorperate them, because now some sites of false-negs. 
+#TODO: Maybe find someway to incorperate them, because now some sites of false-negs. 
 unidSpp=species %>%
   dplyr::select(Aou=AOU, name=english_common_name) %>%
   mutate(unID=ifelse(str_sub(name, 1,5)=='unid.', 1,0)  ) %>%
@@ -62,8 +83,8 @@ unidSpp=species %>%
 weather=weather %>%
   filter(Year %in% timeRange)
 
-#data frame for data just in the study years and without unidentified spp. 
-#and only from runs where the BBS standards =1
+#data frame for data just in the study years, and without unidentified spp. ,
+#and only from runs where the BBS standards == 1
 occData=counts %>%
   filter(Year %in% timeRange) %>%
   mutate(siteID=paste(countrynum, statenum, Route,sep='-')) %>%
@@ -72,7 +93,6 @@ occData=counts %>%
   left_join(weather, by=c('siteID','Year','RPID')) %>%
   filter(runtype==1) %>%
   dplyr::select(-runtype, RPID)
-
 
 #A list of sites and the years they were sampled
 siteList= occData %>%
@@ -84,63 +104,58 @@ siteList= occData %>%
 source('get_prism_data.R')
 bioclimData=get_bioclim_data()
 
-#Some sites have na values.
+#Some sites have na values, most likely the ones in canada. 
 bioclimData = bioclimData %>%
   filter(!is.na(bio1))
 
-
-###################################################################
-#Setup parallel processing
-cl=makeCluster(numProcs)
-registerDoParallel(cl)
 
 #####################################################################
 #Build list of training/validation year sets
 ###################################################################
 # Using the defined range of years and the window sizes above, define
-# training and testing years for all combinations of window sizes
+# training and testing years for all combinations of window sizes.
+#Then repeat for every available yearly offset. 
 modelSetMatrix=data.frame()
 setID=1
 if(length(timeRange)/max(windowSizes) < 2 ){ stop(paste('Window size',max(windowSizes),'too long for',length(timeRange),'year time range',sep=' ')) }
 
 for(thisOffset in yearlyOffsets){
-for(thisWindowSize in windowSizes){
-  #The number of yearly sets given this window size and the number of years in study set.
-  #ie for 10 years of data with 3 year window size = 3 sets (and 1 year leftover)
-  numSets=floor((length(timeRange)-thisOffset)/thisWindowSize)
-  
-  #Produce an array partitioning each of the study years into a set for this window size.
-  #the 1st set (identified by 1's) is added on at the end, so that excess years due to window
-  #size not being a multiple of total years can be used as padding to reduce temporal autocorrelation.
-  #Hopefully that makes sense. ask shawn to explain if not. 
-  windowIdentifier=c()
-  ones=c()
-  for(i in 1:thisWindowSize){
-    windowIdentifier=c(windowIdentifier, 2:numSets)
-    ones=c(ones, 1)
-  }
-  windowIdentifier=sort(windowIdentifier)
-  
-  #For window sizes not a multiple of the number of years in study, add -1 to remaining years.
-  while(length(c(ones,windowIdentifier))<length(timeRange)-thisOffset){
-    windowIdentifier=c(-1,windowIdentifier)
-  }
-  windowIdentifier=c(ones, windowIdentifier)
-  
-  #Pad the beginning offset years with -1
-  while(length(windowIdentifier)<length(timeRange)){
-    windowIdentifier=c(-1,windowIdentifier)
-  }
-
-  thisSetDF=data.frame(windowSize=thisWindowSize, Year=timeRange, windowID=windowIdentifier, setID=setID)
-  setID=setID+1
-  modelSetMatrix=bind_rows(modelSetMatrix, thisSetDF)
+  for(thisWindowSize in windowSizes){
+    #The number of yearly sets given this window size and the number of years in study set.
+    #ie for 10 years of data with 3 year window size = 3 sets (and 1 year leftover)
+    numSets=floor((length(timeRange)-thisOffset)/thisWindowSize)
+    
+    #Produce an array partitioning each of the study years into a set for this window size.
+    #the 1st set (identified by 1's) is added on at the end, so that excess years due to window
+    #size not being a multiple of total years can be used as padding to reduce temporal autocorrelation.
+    #Hopefully that makes sense. ask shawn to explain if not. 
+    windowIdentifier=c()
+    ones=c()
+    for(i in 1:thisWindowSize){
+      windowIdentifier=c(windowIdentifier, 2:numSets)
+      ones=c(ones, 1)
+    }
+    windowIdentifier=sort(windowIdentifier)
+    
+    #For window sizes not a multiple of the number of years in study, add -1 to remaining years.
+    while(length(c(ones,windowIdentifier))<length(timeRange)-thisOffset){
+      windowIdentifier=c(-1,windowIdentifier)
+    }
+    windowIdentifier=c(ones, windowIdentifier)
+    
+    #Pad the beginning offset years with -1
+    while(length(windowIdentifier)<length(timeRange)){
+      windowIdentifier=c(-1,windowIdentifier)
+    }
+    
+    thisSetDF=data.frame(windowSize=thisWindowSize, Year=timeRange, windowID=windowIdentifier, setID=setID)
+    setID=setID+1
+    modelSetMatrix=bind_rows(modelSetMatrix, thisSetDF)
   }
 }
 
 modelSetMatrix = modelSetMatrix %>%
   spread(Year, windowID)
-#modelSetMatrix$setID=1:nrow(modelSetMatrix)
 rm(numSets, windowIdentifier, thisSetDF, ones)
 
 ###################################################################
@@ -237,18 +252,16 @@ processSpDataToWindowSize=function(spData, thisSetID){
   return(x)
 }
 
-#####################################################################
-#Model to use. Details for each one are in bbsDMModels.R
-modelsToUse=c('gbm')
+###################################################################
+#Setup parallel processing
+####################################################################
+cl=makeCluster(numProcs)
+registerDoParallel(cl)
 
 #####################################################################
-# Formula to pass to models
-modelFormula=as.formula('presence ~ bio1+bio2+bio4+bio5+bio6+bio7+bio8+bio9+bio10+bio11+bio12+bio13+bio14+bio16+bio17+bio18+bio19')
-
-
-#####################################################################
-#Iterate thru spp
-
+#Iterate thru spp, building SDM's for each windowsize, offset, and model.
+#Parallel processing happens over the ~250 species
+####################################################################
 finalDF=foreach(thisSpp=unique(occData$Aou)[1:3], .combine=rbind, .packages=c('dplyr','tidyr','magrittr')) %do% {
 #finalDF=foreach(thisSpp=unique(occData$Aou), .combine=rbind, .packages=c('dplyr','tidyr','magrittr')) %dopar% {
 #for(thisSpp in unique(occData$Aou)[1:2]){
@@ -330,4 +343,3 @@ finalDF=foreach(thisSpp=unique(occData$Aou)[1:3], .combine=rbind, .packages=c('d
 }
 
 write.csv(finalDF,resultsFile,row.names = FALSE)
-#write.csv(rawModelResults, rawResultsFile, row.names=FALSE)
