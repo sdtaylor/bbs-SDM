@@ -3,6 +3,7 @@ library(tidyr)
 library(doParallel)
 library(magrittr)
 library(stringr)
+library(DBI)
 
 ####################################################################################
 #Adjustments based on where this script is being run.
@@ -252,6 +253,12 @@ processSpDataToWindowSize=function(spData, thisSetID){
   return(x)
 }
 
+##################################################################
+#Clear out the modelResults table from the database
+#####################################################################
+#Not working at the moment. Just need to do this manually whenever I run this.
+#dbSendQuery(database$con, "TRUNCATE modelResults")
+
 ###################################################################
 #Setup parallel processing
 ####################################################################
@@ -262,9 +269,8 @@ registerDoParallel(cl)
 #Iterate thru spp, building SDM's for each windowsize, offset, and model.
 #Parallel processing happens over the ~250 species
 ####################################################################
-finalDF=foreach(thisSpp=unique(occData$Aou)[1:3], .combine=rbind, .packages=c('dplyr','tidyr','magrittr')) %do% {
-#finalDF=foreach(thisSpp=unique(occData$Aou), .combine=rbind, .packages=c('dplyr','tidyr','magrittr')) %dopar% {
-#for(thisSpp in unique(occData$Aou)[1:2]){
+finalDF=foreach(thisSpp=unique(occData$Aou)[1:3], .combine=rbind, .packages=c('dplyr','tidyr','magrittr','DBI')) %do% {
+#finalDF=foreach(thisSpp=unique(occData$Aou), .combine=rbind, .packages=c('dplyr','tidyr','magrittr','DBI)) %dopar% {
   thisSppResults=data.frame()
   for(thisSetID in modelSetMatrix$setID){
 
@@ -335,11 +341,17 @@ finalDF=foreach(thisSpp=unique(occData$Aou)[1:3], .combine=rbind, .packages=c('d
     modelResults = modelResults %>%
       mutate(Aou=thisSpp, windowSize=thisWindowSize, setID=thisSetID) 
     
-    #Add this iteration to results for this species.
-    thisSppResults=bind_rows(thisSppResults, modelResults)
+    #add results to final dataframe to be written as a csv
+    #thisSppResults=bind_rows(thisSppResults, modelResults)
+    
+    #Append results to the database results table.
+    dbWriteTable(conn=database$con, name='modelResults', value=as.data.frame(modelResults), append=TRUE)
+    
   } 
   #This gets returned to be added to the finalDF dataframe. 
-  return(thisSppResults)
+  #Not needed when writing results to DB
+  #return(thisSppResults)
 }
 
-write.csv(finalDF,resultsFile,row.names = FALSE)
+#Not needed when writing results to DB
+#write.csv(finalDF,resultsFile,row.names = FALSE)
