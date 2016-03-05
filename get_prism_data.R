@@ -5,18 +5,14 @@ library(raster)
 library(dplyr)
 library(tidyr)
 library(stringr)
-options(prism.path = "./data/prismdata")
+options(prism.path = "~/data/prism")
 
 #Years of prism data to 
-years_to_use=1981:2014
+years_to_use=1966:2014
 #Load the DB. create = TRUE does not seem 
 
-sqlite_db_file='./data/bbsforecasting.sqlite'
-if(file.exists(sqlite_db_file)){
-  database <- src_sqlite(sqlite_db_file, create = FALSE)
-} else {
-  database <- src_sqlite(sqlite_db_file, create = TRUE)
-}
+
+source('config.R')
 
 
 #######################################################
@@ -32,20 +28,6 @@ download_prism=function(){
   }
 }
 
-
-#########################################################
-#Pretty sure postgres isn't used anywhere after adding the raw prism to it,
-#so i'll just comment this out for now. 
-############################################################
-#datadirs = dir(datapath)
-#for (datadir in datadirs) {
-#  bil_file = paste(datadir, '.bil', sep = "")
-#  bil_file_path = file.path(datapath, datadir, bil_file)
-#  sql_file = paste(datadir, ".sql", sep = "")
-#  sql_file_path = file.path(datapath, datadir, sql_file)
-#  system(paste("raster2pgsql -s 4326", bil_file_path, datadir, ">", sql_file_path))
-#  system(paste("psql -d bbsforecasting -f", sql_file_path))
-#}
 
 ########################################################
 #Takes output of ls_prism_data() and makes sure all files
@@ -87,9 +69,11 @@ get_prism_data=function(){
     
     #Load the bbs data locations and convert them to a spatial object.
     #Stop here if bbs data isn't available. Could also make this query the DB as well.
-    bbs_data <- try(read.csv("data/bbs_data.csv"))
-    if(class(bbs_data)=='try-error'){stop("Can't load bbs_data.csv inside get_prism_data()")}
-    locations <- unique(dplyr::select(bbs_data, site_id, long, lat))
+    bbs_routes <- try(read.csv("~/data/bbs/BBS_routes.csv"))
+    if(class(bbs_routes)=='try-error'){stop("Can't load bbs_data.csv inside get_prism_data()")}
+    locations = bbs_routes %>%
+      mutate(siteID=paste(countrynum, statenum, route,sep='-')) %>%
+      dplyr::select(siteID, long=loni, lat=lati)
     coordinates(locations) <- c("long", "lat")
     
     #Check to see if all the raw data in the years specified are downloaded,
@@ -102,7 +86,7 @@ get_prism_data=function(){
     #Load the prism data and extract using the bbs locations.
     prism_stacked <- prism_stack(ls_prism_data())
     extracted <- raster::extract(prism_stacked, locations)
-    prism_bbs_data <- data.frame(site_id = locations$site_id, coordinates(locations), extracted)
+    prism_bbs_data <- data.frame(siteID = locations$siteID, coordinates(locations), extracted)
     prism_bbs_data <- prism_bbs_data %>%
       gather(date, value, 4:ncol(prism_bbs_data)) %>%
       tidyr::extract(date, c("clim_var", "year", "month"),
@@ -111,8 +95,13 @@ get_prism_data=function(){
     #Format the data a little and load into the sqlite database.
     prism_bbs_data$year <- as.numeric(prism_bbs_data$year)
     prism_bbs_data$month <- as.numeric(prism_bbs_data$month)
+    
+    #Spread out the climate variables ppt, tmean, etc into columns
+    prism_bbs_data = prism_bbs_data %>%
+      spread(clim_var, value)
+    
     mydata <- copy_to(database, prism_bbs_data, temporary = FALSE,
-                      indexes = list(c("site_id", "year", "month")))
+                      indexes = list(c("siteID", "year", "month")))
     
     #Now return the data as asked for
     return(prism_bbs_data)
@@ -147,18 +136,16 @@ process_bioclim_data=function(){
   #Get the prism data. 
   prism_bbs_data=get_prism_data()
   
-  #Spread out the climate variables ppt, tmean, etc into columns
-  prism_bbs_data = prism_bbs_data %>%
-    spread(clim_var, value)
+
   
   #Process the quarter ones first.
   quarter_info=data.frame(month=1:12, quarter=c(1,1,1,2,2,2,3,3,3,4,4,4))
   bioclim_quarter_data= prism_bbs_data %>%
     left_join(quarter_info, by='month') %>%
-    group_by(site_id, year, quarter) %>%
+    group_by(siteID, year, quarter) %>%
     summarize(precip=sum(ppt), temp=mean(tmean)) %>%
     ungroup() %>%
-    group_by(site_id,year) %>%
+    group_by(siteID,year) %>%
     summarize(bio8=max_min_combo(temp, precip, max=TRUE),
               bio9=max_min_combo(temp, precip, max=FALSE),
               bio10=max(temp),
@@ -171,7 +158,7 @@ process_bioclim_data=function(){
   
   #Next the yearly ones, joining the quartely ones  back in at the end. 
   bioclim_data=prism_bbs_data %>%
-    group_by(site_id, year) %>%
+    group_by(siteID, year) %>%
     mutate(monthly_temp_diff=tmax-tmin) %>%
     summarize(bio1=mean(tmean),
               bio2=mean(monthly_temp_diff),
@@ -185,7 +172,7 @@ process_bioclim_data=function(){
     ungroup() %>%
     mutate(bio7=bio5-bio6,
            bio3=(bio2/bio7)*100) %>%
-    full_join(bioclim_quarter_data, by=c('site_id','year'))
+    full_join(bioclim_quarter_data, by=c('siteID','year'))
   
   return(bioclim_data)
 }
@@ -209,7 +196,7 @@ get_bioclim_data=function(){
     bioclim_bbs_data=process_bioclim_data()
     
     copy_to(database, bioclim_bbs_data, temporary = FALSE, 
-              indexes = list(c('site_id','year')))
+              indexes = list(c('siteID','year')))
      
     return(bioclim_bbs_data)
     
