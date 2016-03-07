@@ -265,12 +265,22 @@ processSpDataToWindowSize=function(spData, thisSetID){
 cl=makeCluster(numProcs)
 registerDoParallel(cl)
 
+#Sending results to the external database needs to be in a seperate function due to
+#sql connection issues with multiple processes. 
+updateResults=function(results){
+  source('databaseConfig.R')
+  database=src_postgres(dbname = dbName, host = dbHost, user = dbUser, password = dbPw)
+  rm(dbName, dbHost, dbUser, dbPw)
+  dbWriteTable(conn=database$con, name='modelResults', value=as.data.frame(results), append=TRUE)
+  dbDisconnect(database$con)
+}
+
 #####################################################################
 #Iterate thru spp, building SDM's for each windowsize, offset, and model.
 #Parallel processing happens over the ~250 species
 ####################################################################
-finalDF=foreach(thisSpp=unique(occData$Aou)[1:3], .combine=rbind, .packages=c('dplyr','tidyr','magrittr','DBI')) %do% {
-#finalDF=foreach(thisSpp=unique(occData$Aou), .combine=rbind, .packages=c('dplyr','tidyr','magrittr','DBI)) %dopar% {
+#finalDF=foreach(thisSpp=unique(occData$Aou)[1:3], .combine=rbind, .packages=c('dplyr','tidyr','magrittr','DBI')) %do% {
+finalDF=foreach(thisSpp=unique(occData$Aou)[1:10], .combine=rbind, .packages=c('dplyr','tidyr','magrittr','DBI','RPostgreSQL')) %dopar% {
   thisSppResults=data.frame()
   for(thisSetID in modelSetMatrix$setID){
 
@@ -345,8 +355,7 @@ finalDF=foreach(thisSpp=unique(occData$Aou)[1:3], .combine=rbind, .packages=c('d
     #thisSppResults=bind_rows(thisSppResults, modelResults)
     
     #Append results to the database results table.
-    dbWriteTable(conn=database$con, name='modelResults', value=as.data.frame(modelResults), append=TRUE)
-    
+    updateResults(modelResults)
   } 
   #This gets returned to be added to the finalDF dataframe. 
   #Not needed when writing results to DB
