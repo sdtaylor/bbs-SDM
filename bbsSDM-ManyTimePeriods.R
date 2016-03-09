@@ -159,14 +159,6 @@ modelSetMatrix = modelSetMatrix %>%
   spread(Year, windowID)
 rm(numSets, windowIdentifier, thisSetDF, ones)
 
-###################################################################
-#Define site change types. These are used in analysis to look at accuracy
-#of changed vs unchaged sites.
-###################################################################
-siteChanges=data.frame(changeType=c('absent-absent','present-present','absent-present','present-absent'),
-                       T1_actual=as.factor(c(0,1,0,1)),
-                       T2_actual=as.factor(c(0,1,1,0)))
-
 #####################################################################
 #Build site information for each setID
 #######################################################################
