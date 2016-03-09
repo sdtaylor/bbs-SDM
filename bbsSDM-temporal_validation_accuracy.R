@@ -1,3 +1,5 @@
+library(splines)
+
 ####################################################################
 #The actual temporal validation plot method from Rapacciuolo et al. 2014
 ###################################################################
