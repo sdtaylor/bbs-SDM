@@ -84,16 +84,25 @@ unidSpp=species %>%
 weather=weather %>%
   filter(Year %in% timeRange)
 
-#data frame for data just in the study years, and without unidentified spp. ,
-#and only from runs where the BBS standards == 1
 occData=counts %>%
   filter(Year %in% timeRange) %>%
   mutate(siteID=paste(countrynum, statenum, Route,sep='-')) %>%
-  filter(!Aou %in% unidSpp) %>%
-  dplyr::select(Aou, siteID,Year, RPID) %>%
+  dplyr::select(Aou, siteID,Year, RPID)
+
+#Remove anything not identified to species
+occData=occData %>%
+  filter(!Aou %in% unidSpp)
+
+#Remove waterbirds and nocturnal birds.
+occData=occData %>%
+  filter(!Aou <=2880, !(Aou >=3650 & Aou<=3810), !(Aou>=3900 & Aou <=3910), !(Aou>=4160 & Aou <=4210), Aou!=7010)
+
+#Remove any data where weather was not suitable or did not follow standard
+#bbs protocal.
+occData=occData %>%
   left_join(weather, by=c('siteID','Year','RPID')) %>%
-  filter(runtype==1) %>%
-  dplyr::select(-runtype, RPID)
+  filter(runtype==1, RPID==101) %>%
+  dplyr::select(-runtype, -RPID)
 
 #A list of sites and the years they were sampled
 siteList= occData %>%
@@ -105,7 +114,7 @@ siteList= occData %>%
 source('get_prism_data.R')
 bioclimData=get_bioclim_data()
 
-#Some sites have na values, most likely the ones in canada. 
+#Some sites have na bioclim values. Mostly canada sites and the occasional one on water. 
 bioclimData = bioclimData %>%
   filter(!is.na(bio1))
 
@@ -343,14 +352,14 @@ finalDF=foreach(thisSpp=unique(occData$Aou)[1:10], .combine=rbind, .packages=c('
     modelResults = modelResults %>%
       mutate(Aou=thisSpp, windowSize=thisWindowSize, setID=thisSetID) 
     
-    #add results to final dataframe to be written as a csv
+    #add results to final dataframe to be written as a csv - CSV Output
     #thisSppResults=bind_rows(thisSppResults, modelResults)
     
-    #Append results to the database results table.
+    #Append results to the database results table. - PostGRES output
     updateResults(modelResults)
   } 
   #This gets returned to be added to the finalDF dataframe. 
-  #Not needed when writing results to DB
+  #Not needed when writing results to DB - CSV OutPut
   #return(thisSppResults)
 }
 
