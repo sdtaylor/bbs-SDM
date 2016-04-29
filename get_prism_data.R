@@ -6,6 +6,7 @@ library(dplyr)
 library(tidyr)
 library(stringr)
 library(rgeos)
+library(magrittr)
 options(prism.path = "~/data/prism")
 
 #Years of prism data to 
@@ -34,11 +35,40 @@ create_grid=function(cellsize, templateRaster){
 }
 
 #######################################################
-#Subset a map of grid cells to those cells that have a minimum number
-#of points within them
+#Subset a map of grid cells to those cells that have at least
+#one point in them. 
+#bbs median number of sites in each cell size:
+#cell size:        0.05, 0.1, 0.25, 0.5, 1.0, 2.0
+#median num sites: 1   ,  1,  1   ,  1 ,  4 ,  16
 #######################################################
-subset_grid=function(g, sp, min_points){
-  
+subset_grid=function(g, sp){
+  g=as(g, 'SpatialPolygons')
+  cells_to_keep = data.frame(grid_id=over(locations, g)) %>%
+    filter(!is.na(grid_id)) %>%
+    extract2('grid_id')
+  g=as(g, 'SpatialPolygonsDataFrame')
+  g=g[cells_to_keep,]
+  return(g)
+}
+
+#for(size in c(0.05, 0.1, 0.25, 0.5, 0.75, 1.0, 1.5, 2.0)){
+#  prism_grid=create_grid(size, p)
+#  prism_grid=subset_grid(prism_grid, locations)
+#  plot(p)
+#  plot(prism_grid, add=T)
+
+#}
+
+#######################################################
+#Takes a grid cell and site spatial df.
+#Returns a df of colnames('cellID','cellSize','siteID')
+#######################################################
+assign_sites_to_grid=function(g, sites, cellSize){
+  g=as(g, 'SpatialPolygons')
+  x=data.frame(cellID=over(locations, p_grid), siteID=sites@data$siteID) %>%
+    filter(!is.na(cellID))
+  x$cellSize=cellSize
+  return(x)
 }
 
 #######################################################
@@ -122,6 +152,7 @@ get_prism_data=function(){
       mutate(siteID=paste(countrynum, statenum, route,sep='-')) %>%
       dplyr::select(siteID, long=loni, lat=lati)
     coordinates(locations) <- c("long", "lat")
+    crs(locations)=CRS('+proj=longlat +datum=NAD83 +no_defs +ellps=GRS80 +towgs84=0,0,0')
     
     #Check to see if all the raw data in the years specified are downloaded,
     #download everything again if not. (Getting only what is needed, say if a 
@@ -129,6 +160,7 @@ get_prism_data=function(){
     if(!check_if_prism_files_present(ls_prism_data(), years_to_use)){
       download_prism()
     }
+    
     
     #Load the prism data and extract using the bbs locations.
     prism_stacked <- prism_stack(ls_prism_data())
