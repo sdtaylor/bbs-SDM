@@ -5,6 +5,7 @@ library(raster)
 library(dplyr)
 library(tidyr)
 library(stringr)
+library(rgeos)
 options(prism.path = "~/data/prism")
 
 #Years of prism data to 
@@ -14,6 +15,52 @@ years_to_use=1966:2014
 
 source('config.R')
 
+#######################################################
+#Create a continuous grid of a certain cell size across the extent of the template raster
+#######################################################
+create_grid=function(cellsize, templateRaster){
+  minX=bbox(templateRaster)[1,1]
+  maxX=bbox(templateRaster)[1,2]
+  minY=bbox(templateRaster)[2,1]
+  maxY=bbox(templateRaster)[2,2]
+  
+  lowerX=maxX-minX
+  lowerY=maxY-minY
+  
+  numCellsX=round((lowerX+1)/cellsize)
+  numCellsY=round((lowerY+1)/cellsize)
+  g=GridTopology(c(minX, minY), c(cellsize,cellsize), c(numCellsX, numCellsY))
+  g=SpatialGrid(g, proj4string = CRS(crs(templateRaster)@projargs))
+}
+
+#######################################################
+#Subset a map of grid cells to those cells that have a minimum number
+#of points within them
+#######################################################
+subset_grid=function(g, sp, min_points){
+  
+}
+
+#######################################################
+#Much quicker method for extracting data from a rasterstack w/ polygons. 
+#######################################################
+extract_polygon=function(raster_stack, sp, radius=NULL){
+  if(class(raster_stack)!='RasterStack'){stop('This function only provides value when using a raster stack. For a single raster it is no faster than raster::extract()')}
+  #Need check to make sure CRS is teh same
+  ######
+  #If sp == spatialPointsDataFrame, convert it to a circular polygon w/ size=radius
+  ######
+  
+  cellNumbers=cellFromPolygon(raster_stack, sp)
+  
+  idVec=c()
+  for(i in seq_along(cellNumbers)){
+    idVec=c(idVec,rep(i, length(cellNumbers[[i]])))
+  }
+  cellNumbers=unlist(cellNumbers)
+  cellData=extract(raster_stack, cellNumbers)
+  df=data.frame(id=idVec, cellData)
+}
 
 #######################################################
 #Downloads the raw prism rasters into the folder specified above. 
