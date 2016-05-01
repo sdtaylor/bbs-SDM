@@ -65,7 +65,7 @@ subset_grid=function(g, sp){
 #######################################################
 assign_sites_to_grid=function(g, sites, cellSize){
   g=as(g, 'SpatialPolygons')
-  x=data.frame(cellID=over(locations, p_grid), siteID=sites@data$siteID) %>%
+  x=data.frame(cellID=over(locations, g), siteID=sites@data$siteID) %>%
     filter(!is.na(cellID))
   x$cellSize=cellSize
   return(x)
@@ -161,10 +161,25 @@ get_prism_data=function(){
       download_prism()
     }
     
+    #Load the prism data
+    prism_stacked <- prism_stack(ls_prism_data()[1:2,])
     
-    #Load the prism data and extract using the bbs locations.
-    prism_stacked <- prism_stack(ls_prism_data())
-    extracted <- raster::extract(prism_stacked, locations)
+    #Build the different grids at each spatial scale
+    #And list of which site is within each cell at each scale
+    spatial_grids=list()
+    spatial_grid_info=data.frame()
+    for(cell_size in spatial_cell_sizes){
+      this_grid=create_grid(cell_size, prism_stacked)
+      this_grid=subset_grid(this_grid, locations)
+      spatial_grids[paste('size',cell_size, sep='-')]=this_grid
+      
+      spatial_grid_info = spatial_grid_info %>%
+        bind_rows(assign_sites_to_grid(this_grid, locations, cell_size))
+    }
+    
+    #Extract the prism values for each cell size
+    extracted <- extract_polygon(prism_stacked, spatial_grids[['size-0.25']])
+    
     prism_bbs_data <- data.frame(siteID = locations$siteID, coordinates(locations), extracted)
     prism_bbs_data <- prism_bbs_data %>%
       gather(date, value, 4:ncol(prism_bbs_data)) %>%
