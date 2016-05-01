@@ -43,8 +43,9 @@ create_grid=function(cellsize, templateRaster){
 #######################################################
 subset_grid=function(g, sp){
   g=as(g, 'SpatialPolygons')
-  cells_to_keep = data.frame(grid_id=over(locations, g)) %>%
+  cells_to_keep = data.frame(grid_id=over(sp, g)) %>%
     filter(!is.na(grid_id)) %>%
+    distinct() %>%
     extract2('grid_id')
   g=as(g, 'SpatialPolygonsDataFrame')
   g=g[cells_to_keep,]
@@ -80,7 +81,7 @@ extract_polygon=function(raster_stack, sp, radius=NULL){
   ######
   #If sp == spatialPointsDataFrame, convert it to a circular polygon w/ size=radius
   ######
-  
+  sp=as(sp, 'SpatialPolygons')
   cellNumbers=cellFromPolygon(raster_stack, sp)
   
   idVec=c()
@@ -162,7 +163,7 @@ get_prism_data=function(){
     }
     
     #Load the prism data
-    prism_stacked <- prism_stack(ls_prism_data()[1:2,])
+    prism_stacked <- prism_stack(ls_prism_data())
     
     #Build the different grids at each spatial scale
     #And list of which site is within each cell at each scale
@@ -177,14 +178,24 @@ get_prism_data=function(){
         bind_rows(assign_sites_to_grid(this_grid, locations, cell_size))
     }
     
+
     #Extract the prism values for each cell size
-    extracted <- extract_polygon(prism_stacked, spatial_grids[['size-0.25']])
+    prism_bbs_data=data.frame()
+    for(cell_size in spatial_cell_sizes){
+      extracted <- extract_polygon(prism_stacked, spatial_grids[[paste('size',cell_size,sep='-')]]) %>%
+        group_by(id) %>%
+        summarize_each(funs(mean(.,na.rm=T))) %>%
+        rename(cellID=id)
+
+      extracted$cellSize=cell_size
     
-    prism_bbs_data <- data.frame(siteID = locations$siteID, coordinates(locations), extracted)
-    prism_bbs_data <- prism_bbs_data %>%
-      gather(date, value, 4:ncol(prism_bbs_data)) %>%
+    #prism_bbs_data <- data.frame(siteID = locations$siteID, coordinates(locations), extracted)
+    prism_bbs_data <- extracted %>%
+      gather(date, value, -cellID, -cellSize) %>%
       tidyr::extract(date, c("clim_var", "year", "month"),
-                     "PRISM_([:alpha:]*)_stable_[:alnum:]*_([:digit:]{4})([:digit:]{2})_")
+                     "PRISM_([:alpha:]*)_stable_[:alnum:]*_([:digit:]{4})([:digit:]{2})_") %>%
+      bind_rows(prism_bbs_data)
+    }
     
     #Format the data a little and load into the sqlite database.
     prism_bbs_data$year <- as.numeric(prism_bbs_data$year)
