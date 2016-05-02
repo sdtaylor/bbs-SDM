@@ -66,7 +66,7 @@ subset_grid=function(g, sp){
 #######################################################
 assign_sites_to_grid=function(g, sites, cellSize){
   g=as(g, 'SpatialPolygons')
-  x=data.frame(cellID=over(locations, g), siteID=sites@data$siteID) %>%
+  x=data.frame(cellID=over(sites, g), siteID=sites@data$siteID) %>%
     filter(!is.na(cellID))
   x$cellSize=cellSize
   return(x)
@@ -152,6 +152,7 @@ get_prism_data=function(){
     locations = bbs_routes %>%
       mutate(siteID=paste(countrynum, statenum, route,sep='-')) %>%
       dplyr::select(siteID, long=loni, lat=lati)
+    #locations=locations[3818:4010,] #just use a few points when testing
     coordinates(locations) <- c("long", "lat")
     crs(locations)=CRS('+proj=longlat +datum=NAD83 +no_defs +ellps=GRS80 +towgs84=0,0,0')
     
@@ -206,7 +207,7 @@ get_prism_data=function(){
       spread(clim_var, value)
     
     mydata <- copy_to(database, prism_bbs_data, temporary = FALSE,
-                      indexes = list(c("siteID", "year", "month")))
+                      indexes = list(c("cellID", "year", "month")))
     
     #Now return the data as asked for
     return(prism_bbs_data)
@@ -301,7 +302,7 @@ get_bioclim_data=function(){
     bioclim_bbs_data=process_bioclim_data()
     
     copy_to(database, bioclim_bbs_data, temporary = FALSE, 
-              indexes = list(c('siteID','year')))
+              indexes = list(c('cellID','year')))
      
     return(bioclim_bbs_data)
     
