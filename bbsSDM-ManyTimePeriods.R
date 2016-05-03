@@ -42,24 +42,7 @@ if(is.na(args[1])){
 ####################################################################
 #Configuration
 ####################################################################
-
-#Years in the data to consider.
-timeRange=c(1971:2014)
-
-#Window sizes to use.
-#windowSizes=c(1,2,3,4,5,6,7,8,9,10,11,12,13,14)
-windowSizes=c(5,10)
-
-#These are the offsets which scooch the analysis forward n years at a time to average out climatic variability
-#0 means no offset. 
-#There is no check for setting this so high there is no room for the large window sizes.
-yearlyOffsets=0:0
-
-#Model to use. Details for each one are in bbsDMModels.R
-modelsToUse=c('gbm')
-
-# Formula to pass to models
-modelFormula=as.formula('presence ~ bio1+bio2+bio4+bio5+bio6+bio7+bio8+bio9+bio10+bio11+bio12+bio13+bio14+bio16+bio17+bio18+bio19')
+source('config.R')
 
 #################################################################
 #Data loading and pre-processing
