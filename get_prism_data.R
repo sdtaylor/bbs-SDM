@@ -248,10 +248,10 @@ process_bioclim_data=function(){
   quarter_info=data.frame(month=1:12, quarter=c(1,1,1,2,2,2,3,3,3,4,4,4))
   bioclim_quarter_data= prism_bbs_data %>%
     left_join(quarter_info, by='month') %>%
-    group_by(siteID, year, quarter) %>%
+    group_by(cellID, cellSize, year, quarter) %>%
     summarize(precip=sum(ppt), temp=mean(tmean)) %>%
     ungroup() %>%
-    group_by(siteID,year) %>%
+    group_by(cellID, cellSize,year) %>%
     summarize(bio8=max_min_combo(temp, precip, max=TRUE),
               bio9=max_min_combo(temp, precip, max=FALSE),
               bio10=max(temp),
@@ -264,7 +264,7 @@ process_bioclim_data=function(){
   
   #Next the yearly ones, joining the quartely ones  back in at the end. 
   bioclim_data=prism_bbs_data %>%
-    group_by(siteID, year) %>%
+    group_by(cellID, cellSize, year) %>%
     mutate(monthly_temp_diff=tmax-tmin) %>%
     summarize(bio1=mean(tmean),
               bio2=mean(monthly_temp_diff),
@@ -278,7 +278,7 @@ process_bioclim_data=function(){
     ungroup() %>%
     mutate(bio7=bio5-bio6,
            bio3=(bio2/bio7)*100) %>%
-    full_join(bioclim_quarter_data, by=c('siteID','year'))
+    full_join(bioclim_quarter_data, by=c('cellID','cellSize','year'))
   
   return(bioclim_data)
 }
@@ -302,7 +302,7 @@ get_bioclim_data=function(){
     bioclim_bbs_data=process_bioclim_data()
     
     copy_to(database, bioclim_bbs_data, temporary = FALSE, 
-              indexes = list(c('cellID','year')))
+              indexes = list(c('cellID','cellSize','year')))
      
     return(bioclim_bbs_data)
     
