@@ -159,10 +159,15 @@ rm(numSets, windowIdentifier, thisSetDF, ones)
 #Filter sites based on coverage within a particular windowID
 #calculate weather data for all those sites. 
 siteDataMatrix=data.frame()
+
+#What sites are within what cells at all scales.
+spatial_grid_info=get_spatial_grid_info() 
+
 for(thisSetID in unique(modelSetMatrix$setID)){
-  #Get the yearly sets to use (ie. set1: 80-84, set2: 85-89, etc) and the sets window size
-  thisSetYears=modelSetMatrix %>% filter(setID==thisSetID) %>% gather(Year, windowID, -windowSize, -setID)
-  thisWindowSize=thisSetYears %>% dplyr::select(windowSize) %>% distinct() %>% extract2('windowSize')
+  #Get the yearly sets to use (ie. set1: 80-84, set2: 85-89, etc) and other info about this set
+  thisSetYears=modelSetMatrix %>% filter(setID==thisSetID) %>% gather(Year, windowID, -windowSize, -setID, -spatial_scale)
+  thisWindowSize=modelSetMatrix %>% filter(setID==thisSetID) %>% extract2('windowSize')
+  this_spatial_scale=modelSetMatrix %>% filter(setID==thisSetID) %>% extract2('spatial_scale')
   thisSetYears=thisSetYears %>% dplyr::select(Year, windowID)
   
   #List of sites and the number of years coverage they have within a particular windowID within this setID
@@ -189,21 +194,34 @@ for(thisSetID in unique(modelSetMatrix$setID)){
     #adequate coverage in a particule set
     filter((windowID > 1 & nYears >= thisWindowSize*0.66) | (windowID<=1))
   
+  #Enforce a minimum number of sites within each cell. 
+  #(The median number of sites across all cells of this scale)
+  cells_to_keep=spatial_grid_info %>%
+    filter(siteID %in% unique(thisSetSiteInfo$siteID)) %>%
+    filter(cellSize==this_spatial_scale) %>%
+    group_by(cellID) %>%
+    summarize(num_sites=n()) %>%
+    ungroup() %>%
+    filter(num_sites >= median(num_sites)) %>%
+    extract2('cellID')
+  
   thisSetWeather=bioclimData %>%
-    filter(year %in% timeRange) %>%
+    filter(year %in% timeRange, cellSize==this_spatial_scale) %>%
     rename(Year=year) %>%
     mutate(Year=as.factor(Year)) %>%
     left_join(thisSetYears, by='Year') %>%
-    group_by(windowID, siteID) %>%
-    summarize_each(funs(mean), -Year,-siteID)
+    group_by(windowID, cellID) %>%
+    summarize_each(funs(mean), -Year,-cellID) %>%
+    ungroup() %>%
+    filter(cellID %in% cells_to_keep)
   
-  thisSetSiteInfo = thisSetSiteInfo %>%
-    left_join(thisSetWeather, by=c('windowID','siteID')) %>%
-    filter(!is.na(bio1))
+  #thisSetSiteInfo = thisSetSiteInfo %>%
+  #  left_join(thisSetWeather, by=c('windowID','siteID')) %>%
+  #  filter(!is.na(bio1))
   
-  thisSetSiteInfo$setID=thisSetID
+  thisSetWeather$setID=thisSetID
   
-  siteDataMatrix = bind_rows(siteDataMatrix, thisSetSiteInfo)
+  siteDataMatrix = bind_rows(siteDataMatrix, thisSetWeather)
   }
 rm(thisSetSiteInfo, thisSetWeather, thisSetYears, thisWindowSize, dropSites)
 
