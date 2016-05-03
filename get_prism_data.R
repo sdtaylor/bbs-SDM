@@ -164,10 +164,11 @@ get_prism_data=function(){
     }
     
     #Load the prism data
-    prism_stacked <- prism_stack(ls_prism_data())
+    prism_stacked <- prism_stack(ls_prism_data()[1:2,])
     
     #Build the different grids at each spatial scale
     #And list of which site is within each cell at each scale
+    #Store in db for later use
     spatial_grids=list()
     spatial_grid_info=data.frame()
     for(cell_size in spatial_cell_sizes){
@@ -178,6 +179,7 @@ get_prism_data=function(){
       spatial_grid_info = spatial_grid_info %>%
         bind_rows(assign_sites_to_grid(this_grid, locations, cell_size))
     }
+    copy_to(database, spatial_grid_info, temporary = FALSE)
     
 
     #Extract the prism values for each cell size
@@ -208,6 +210,7 @@ get_prism_data=function(){
     
     mydata <- copy_to(database, prism_bbs_data, temporary = FALSE,
                       indexes = list(c("cellID", "year", "month")))
+    
     
     #Now return the data as asked for
     return(prism_bbs_data)
@@ -281,6 +284,22 @@ process_bioclim_data=function(){
     full_join(bioclim_quarter_data, by=c('cellID','cellSize','year'))
   
   return(bioclim_data)
+}
+
+
+####################################################################
+#Load the data frame that tells which site is in which cell at all the 
+#different spatial scales
+####################################################################
+
+get_spatial_grid_info=function(){
+  #Query sqlite database for thetable. If it exists, return it.
+  #Otherwise throw an error
+  if('spatial_grid_info' %in% src_tbls(database)){
+    return(collect(tbl(database, sql('SELECT * from spatial_grid_info'))))
+  } else { 
+    stop("Can't find table spatial_grid_info")
+  } 
 }
 
 
