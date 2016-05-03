@@ -141,9 +141,11 @@ for(thisOffset in yearlyOffsets){
       windowIdentifier=c(-1,windowIdentifier)
     }
     
-    thisSetDF=data.frame(windowSize=thisWindowSize, Year=timeRange, windowID=windowIdentifier, setID=setID)
-    setID=setID+1
-    modelSetMatrix=bind_rows(modelSetMatrix, thisSetDF)
+    for(this_spatial_scale in spatial_cell_sizes){
+      thisSetDF=data.frame(windowSize=thisWindowSize, spatial_scale=this_spatial_scale, Year=timeRange, windowID=windowIdentifier, setID=setID)
+      setID=setID+1
+      modelSetMatrix=bind_rows(modelSetMatrix, thisSetDF)
+    }
   }
 }
 
