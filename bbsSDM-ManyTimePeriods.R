@@ -154,14 +154,39 @@ modelSetMatrix = modelSetMatrix %>%
 rm(numSets, windowIdentifier, thisSetDF, ones)
 
 #####################################################################
+#Convert sites to cells
+#Enforce a minimum number of sites within each cell.
+#######################################################################
+#What sites are within what cells at all scales.
+#combine with what years each of those sites is sampled. 
+spatial_grid_info=get_spatial_grid_info() %>%
+  left_join(siteList, by='siteID') %>%
+  group_by(cellID, cellSize, Year) %>%
+  summarize(num_sites=n()) %>%
+  ungroup() %>%
+  filter(!is.na(Year))
+
+cell_size_median_sites=spatial_grid_info %>%
+  group_by(cellSize, Year) %>%
+  summarize(median_num_sites=median(num_sites))%>%
+  ungroup()
+
+#A list of cell's that will be used within each spatial scale
+spatial_grid_info = spatial_grid_info %>%
+  left_join(cell_size_median_sites, by=c('cellSize','Year')) %>%
+  filter(num_sites>=median_num_sites) %>%
+  dplyr::select(-num_sites, -median_num_sites)
+
+#Where all the sites are actually located. 
+site_id_cell_id=get_spatial_grid_info()
+
+#####################################################################
 #Build site information for each setID
+#Also ensure a minimum number of years covered in the temporal scales
 #######################################################################
 #Filter sites based on coverage within a particular windowID
 #calculate weather data for all those sites. 
 siteDataMatrix=data.frame()
-
-#What sites are within what cells at all scales.
-spatial_grid_info=get_spatial_grid_info() 
 
 for(thisSetID in unique(modelSetMatrix$setID)){
   #Get the yearly sets to use (ie. set1: 80-84, set2: 85-89, etc) and other info about this set
@@ -171,13 +196,15 @@ for(thisSetID in unique(modelSetMatrix$setID)){
   thisSetYears=thisSetYears %>% dplyr::select(Year, windowID)
   
   #List of sites and the number of years coverage they have within a particular windowID within this setID
-  thisSetSiteInfo= siteList %>%
+  thisSetSiteInfo= spatial_grid_info %>%
+    filter(cellSize==this_spatial_scale) %>%
     left_join(thisSetYears, by='Year') %>%
-    group_by(windowID, siteID) %>%
+    group_by(windowID, cellID, cellSize) %>%
     summarize(nYears=n()) %>%
+    ungroup() %>%
     #This fills in sites that are not covered *period* in the 1st training window. They need to have 0 value
     #to be excluded from the analysis in the next step.
-    full_join( data.frame(windowID=1, siteID=unique(siteList$siteID)), by=c('siteID','windowID')) 
+    full_join( data.frame(windowID=1, cellID=unique(spatial_grid_info$cellID)), by=c('cellID','windowID')) 
   
   thisSetSiteInfo$nYears[is.na(thisSetSiteInfo$nYears)]=0
   
@@ -185,35 +212,26 @@ for(thisSetID in unique(modelSetMatrix$setID)){
   #in the training set( set 1)
   dropSites= thisSetSiteInfo %>%
     filter(windowID==1 & nYears < thisWindowSize*0.66) %>%
-    extract2('siteID') %>%
+    extract2('cellID') %>%
     unique()
 
   thisSetSiteInfo=thisSetSiteInfo %>%
-    filter(!siteID %in% dropSites) %>%
+    filter(!cellID %in% dropSites) %>%
     #Of those remaining, drop any sites on a per set basis if they don't have
     #adequate coverage in a particule set
     filter((windowID > 1 & nYears >= thisWindowSize*0.66) | (windowID<=1))
-  
-  #Enforce a minimum number of sites within each cell. 
-  #(The median number of sites across all cells of this scale)
-  cells_to_keep=spatial_grid_info %>%
-    filter(siteID %in% unique(thisSetSiteInfo$siteID)) %>%
-    filter(cellSize==this_spatial_scale) %>%
-    group_by(cellID) %>%
-    summarize(num_sites=n()) %>%
-    ungroup() %>%
-    filter(num_sites >= median(num_sites)) %>%
-    extract2('cellID')
-  
+
+  #Average all bioclim over this spatial scale. subset to sites
+  #with adequate temporal coverage. 
   thisSetWeather=bioclimData %>%
     filter(year %in% timeRange, cellSize==this_spatial_scale) %>%
     rename(Year=year) %>%
     mutate(Year=as.factor(Year)) %>%
     left_join(thisSetYears, by='Year') %>%
     group_by(windowID, cellID) %>%
-    summarize_each(funs(mean), -Year,-cellID) %>%
+    summarize_each(funs(mean), -Year,-cellID, -cellSize) %>%
     ungroup() %>%
-    filter(cellID %in% cells_to_keep)
+    filter(cellID %in% thisSetSiteInfo$cellID)
   
   #thisSetSiteInfo = thisSetSiteInfo %>%
   #  left_join(thisSetWeather, by=c('windowID','siteID')) %>%
@@ -223,7 +241,16 @@ for(thisSetID in unique(modelSetMatrix$setID)){
   
   siteDataMatrix = bind_rows(siteDataMatrix, thisSetWeather)
   }
-rm(thisSetSiteInfo, thisSetWeather, thisSetYears, thisWindowSize, dropSites)
+rm(thisSetSiteInfo, thisSetWeather, thisSetYears, thisWindowSize, dropSites, cells_to_keep, thisSetID, bioclimData)
+
+###################################################################
+#BBS occurance data is for individual sites. Need to convert all those to presences
+#in cells at all the different spatial scales while also accounting for the different 
+#Temporal scales.
+occData=occData %>%
+  left_join(spatial_grid_info, by='siteID') %>%
+  dplyr::select(-siteID) %>%
+  distinct()
 
 ####################################################################
 #Process data for a single species to a specific window size in prep for modeling.
@@ -232,8 +259,10 @@ rm(thisSetSiteInfo, thisSetWeather, thisSetYears, thisWindowSize, dropSites)
 ###################################################################
 processSpDataToWindowSize=function(spData, thisSetID){
   #Get the window ID for all the years
-  thisSetYears=modelSetMatrix %>% filter(setID==thisSetID) %>% gather(Year, windowID, -windowSize, -setID)
-  thisWindowSize=thisSetYears %>% dplyr::select(windowSize) %>% distinct() %>% extract2('windowSize')
+  thisSetYears=modelSetMatrix %>% filter(setID==thisSetID) %>% gather(Year, windowID, -windowSize, -setID, -spatial_scale)
+  thisWindowSize=modelSetMatrix %>% filter(setID==thisSetID) %>% extract2('windowSize')
+  this_spatial_scale=modelSetMatrix %>% filter(setID==thisSetID) %>% extract2('spatial_scale')
+  
   thisSetYears=thisSetYears %>% dplyr::select(Year, windowID)
   
   spData$Year=as.factor(spData$Year) #change to factor to work in join
@@ -287,11 +316,11 @@ updateResults=function(results){
 finalDF=foreach(thisSpp=unique(occData$Aou)[1:10], .combine=rbind, .packages=c('dplyr','tidyr','magrittr','DBI','RPostgreSQL')) %dopar% {
   thisSppResults=data.frame()
   for(thisSetID in modelSetMatrix$setID){
-
-    thisWindowSize=modelSetMatrix$windowSize[modelSetMatrix$setID==thisSetID]
+    thisWindowSize=modelSetMatrix %>% filter(setID==thisSetID) %>% extract2('windowSize')
+    this_spatial_scale=modelSetMatrix %>% filter(setID==thisSetID) %>% extract2('spatial_scale')
     #Process the data. excluding sites with low coverage, add bioclim variables, aggregating years into single widow size 
     #occurance, labeling those occurances, etc. 
-    thisSppData=filter(occData, Aou==thisSpp)
+    thisSppData=filter(occData, Aou==thisSpp, spatial_cell_sizes==this_spatial_scale)
     thisSppData=processSpDataToWindowSize(spData=thisSppData,thisSetID=thisSetID)
     thisSppData$Aou=thisSpp
     
