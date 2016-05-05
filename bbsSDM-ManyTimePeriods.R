@@ -241,14 +241,14 @@ for(thisSetID in unique(modelSetMatrix$setID)){
   
   siteDataMatrix = bind_rows(siteDataMatrix, thisSetWeather)
   }
-rm(thisSetSiteInfo, thisSetWeather, thisSetYears, thisWindowSize, dropSites, cells_to_keep, thisSetID, bioclimData)
+rm(thisSetSiteInfo, thisSetWeather, thisSetYears, thisWindowSize, dropSites, thisSetID, bioclimData)
 
 ###################################################################
 #BBS occurance data is for individual sites. Need to convert all those to presences
 #in cells at all the different spatial scales while also accounting for the different 
 #Temporal scales.
 occData=occData %>%
-  left_join(spatial_grid_info, by='siteID') %>%
+  left_join(site_id_cell_id, by='siteID') %>%
   dplyr::select(-siteID) %>%
   distinct()
 
@@ -270,18 +270,17 @@ processSpDataToWindowSize=function(spData, thisSetID){
   #Get presence data for this species summarized by the windowIDs
   x=spData %>%
     left_join(thisSetYears, by='Year') %>%
-    dplyr::select(Aou, siteID, windowID) %>%
+    dplyr::select(Aou, cellID, windowID) %>%
     distinct() %>%
     mutate(presence=1)
   
   #Merge with the site data matrix to get absences & bioclim data at the same time
   #this is a left_join here because siteDataMatrix only includes sites that have been
-  #filtered for adequate coverage inside this window size. 
+  #filtered for adequate coverage inside the temporal and spatial scales. 
   x=  siteDataMatrix %>%
     filter(setID==thisSetID) %>%
-    left_join(x, by=c('siteID','windowID')) %>%  
-    mutate(presence=ifelse(is.na(presence), 0, 1)) %>%
-    dplyr::select(-nYears)
+    left_join(x, by=c('cellID','windowID')) %>%  
+    mutate(presence=ifelse(is.na(presence), 0, 1)) 
   
   return(x)
 }
@@ -313,14 +312,14 @@ updateResults=function(results){
 #Parallel processing happens over the ~250 species
 ####################################################################
 #finalDF=foreach(thisSpp=unique(occData$Aou)[1:3], .combine=rbind, .packages=c('dplyr','tidyr','magrittr','DBI')) %do% {
-finalDF=foreach(thisSpp=unique(occData$Aou)[1:10], .combine=rbind, .packages=c('dplyr','tidyr','magrittr','DBI','RPostgreSQL')) %dopar% {
+finalDF=foreach(thisSpp=unique(occData$Aou)[1:50], .combine=rbind, .packages=c('dplyr','tidyr','magrittr','DBI','RPostgreSQL')) %dopar% {
   thisSppResults=data.frame()
   for(thisSetID in modelSetMatrix$setID){
     thisWindowSize=modelSetMatrix %>% filter(setID==thisSetID) %>% extract2('windowSize')
     this_spatial_scale=modelSetMatrix %>% filter(setID==thisSetID) %>% extract2('spatial_scale')
     #Process the data. excluding sites with low coverage, add bioclim variables, aggregating years into single widow size 
     #occurance, labeling those occurances, etc. 
-    thisSppData=filter(occData, Aou==thisSpp, spatial_cell_sizes==this_spatial_scale)
+    thisSppData=dplyr::filter(occData, Aou==thisSpp, cellSize==this_spatial_scale)
     thisSppData=processSpDataToWindowSize(spData=thisSppData,thisSetID=thisSetID)
     thisSppData$Aou=thisSpp
     
@@ -340,7 +339,7 @@ finalDF=foreach(thisSpp=unique(occData$Aou)[1:10], .combine=rbind, .packages=c('
 
     #A template to create results for each model in modelsToUse
     modelResultsTemplate=thisSppData %>%
-      dplyr::select(windowID, presence, siteID, setID)
+      dplyr::select(windowID, presence, cellID, setID)
     
     #All the different model results will be pasted together in here
     modelResults=data.frame()
@@ -369,8 +368,8 @@ finalDF=foreach(thisSpp=unique(occData$Aou)[1:10], .combine=rbind, .packages=c('
       filter(windowID!=1) %>%
       rename(T2_actual=presence, T2_prob=prediction) %>%
       left_join(  filter(modelResults, windowID==1) %>% 
-                    dplyr::select(presence, siteID, modelName, prediction) %>% 
-                    rename(T1_actual=presence, T1_prob=prediction), by=c('siteID','modelName'))
+                    dplyr::select(presence, cellID, modelName, prediction) %>% 
+                    rename(T1_actual=presence, T1_prob=prediction), by=c('cellID','modelName'))
     
 
     
@@ -382,7 +381,7 @@ finalDF=foreach(thisSpp=unique(occData$Aou)[1:10], .combine=rbind, .packages=c('
 
     #Species and window size for this set of models. 
     modelResults = modelResults %>%
-      mutate(Aou=thisSpp, windowSize=thisWindowSize, setID=thisSetID) 
+      mutate(Aou=thisSpp, windowSize=thisWindowSize, setID=thisSetID, cellSize=this_spatial_scale) 
     
     #add results to final dataframe to be written as a csv - CSV Output
     #thisSppResults=bind_rows(thisSppResults, modelResults)
