@@ -10,6 +10,8 @@ timeRange=c(1971:2014)
 #windowSizes=c(1,2,3,4,5,6,7,8,9,10,11,12,13,14)
 windowSizes=c(5,10)
 
+training_years=1971:1980
+
 #Spatial scale to use. These are width & height of grid cells in degrees. 
 spatial_cell_sizes=c(0.1, 0.25, 0.5, 1.0, 2.0)
 
