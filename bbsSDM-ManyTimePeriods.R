@@ -298,6 +298,7 @@ finalDF=foreach(thisSpp=unique(occData$Aou)[1:2], .combine=rbind, .packages=c('d
     #Process the data. excluding sites with low coverage, add bioclim variables, aggregating years into single widow size 
     #occurance, labeling those occurances, etc. 
     thisSppData=dplyr::filter(occData, Aou==thisSpp, cellSize==this_spatial_scale)
+    if(nrow(thisSppData)==0){next}
     thisSppData=processSpDataToWindowSize(spData=thisSppData,thisSetID=thisSetID)
     thisSppData$Aou=thisSpp
     
