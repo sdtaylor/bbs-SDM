@@ -8,7 +8,7 @@ timeRange=c(1971:2014)
 
 #Window sizes to use. This is the temporal scale
 #windowSizes=c(1,2,3,4,5,6,7,8,9,10,11,12,13,14)
-windowSizes=c(5,10)
+temporal_scales=c(1,3,5,10)
 
 training_years=1971:1980
 
