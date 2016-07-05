@@ -289,6 +289,10 @@ updateResults=function(results){
 #Iterate thru spp, building SDM's for each windowsize, offset, and model.
 #Parallel processing happens over the ~250 species
 ####################################################################
+#Whether to write results to the postgres DB or keep in a local DF.
+#Keeping it in a local DF is used for testing on a small number of species. 
+writeToDB=FALSE
+
 #finalDF=foreach(thisSpp=unique(occData$Aou)[1:3], .combine=rbind, .packages=c('dplyr','tidyr','magrittr','DBI')) %do% {
 finalDF=foreach(thisSpp=unique(occData$Aou)[1:2], .combine=rbind, .packages=c('dplyr','tidyr','magrittr','DBI','RPostgreSQL')) %dopar% {
   thisSppResults=data.frame()
@@ -366,15 +370,23 @@ finalDF=foreach(thisSpp=unique(occData$Aou)[1:2], .combine=rbind, .packages=c('d
     modelResults = modelResults %>%
       mutate(Aou=thisSpp,setID=thisSetID, cellSize=this_spatial_scale) 
     
-    #add results to final dataframe to be written as a csv - CSV Output
-    #thisSppResults=bind_rows(thisSppResults, modelResults)
+
     
-    #Append results to the database results table. - PostGRES output
-    updateResults(modelResults)
+    #Append results to the database results table or the results DF
+    if(writeToDB){
+      updateResults(modelResults)
+    } else {
+      #add results to final dataframe to be written as a csv - CSV Output
+      thisSppResults=bind_rows(thisSppResults, modelResults)
+    }
+    
+    
   } 
   #This gets returned to be added to the finalDF dataframe. 
   #Not needed when writing results to DB - CSV OutPut
-  #return(thisSppResults)
+  if(!writeToDB){
+    return(thisSppResults)
+  }
 }
 
 #Not needed when writing results to DB

@@ -13,7 +13,7 @@ library(dplyr)
 sdmModels=function(data, modelName, modelFormula){
   
   #In the main script the presence/absence gets set to factors. Some models need it to be numeric though. 
-  if(modelName %in% c('gbm','ann')) {
+  if(modelName %in% c('gbm','ann','naive')) {
     data$presence=as.integer(as.character(data$presence))
   }
   
@@ -43,6 +43,18 @@ sdmModels=function(data, modelName, modelFormula){
     model=neuralnet(modelFormula, hidden=7, learningrate=0.03, data=trainData)
     x=compute(model, testData)
     x=compute(model, as.matrix(dplyr::select(testData, -presence)))
+    
+  } else if(modelName=='naive'){
+    #Mean probability of occurance over all training years for each cell.
+    mean_presence_per_site=trainData %>%
+      group_by(cellID) %>% 
+      summarize(predict=mean(as.integer(as.character(presence)))) %>%
+      ungroup()
+    
+    testData = testData %>%
+      left_join(mean_presence_per_site, by='cellID')
+    
+    return(testData$predict)
     
   } else if(modelName=='cta'){
     model=rpart(modelFormula, method='class', data=trainData)

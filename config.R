@@ -21,7 +21,7 @@ spatial_cell_sizes=c(0.1, 0.25, 0.5, 1.0, 2.0)
 yearlyOffsets=0:0
 
 #Model to use. Details for each one are in bbsDMModels.R
-modelsToUse=c('gbm')
+modelsToUse=c('gbm','naive')
 
 # Formula to pass to models
 modelFormula=as.formula('presence ~ bio1+bio2+bio4+bio5+bio6+bio7+bio8+bio9+bio10+bio11+bio12+bio13+bio14+bio16+bio17+bio18+bio19')
