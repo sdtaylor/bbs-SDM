@@ -18,7 +18,7 @@ spatial_cell_sizes=c(0.1, 0.25, 0.5, 1.0, 2.0)
 #These are the offsets which scooch the analysis forward n years at a time to average out climatic variability
 #0 means no offset. 
 #There is no check for setting this so high there is no room for the large window sizes.
-yearlyOffsets=0:0
+yearlyOffsets=0:5
 
 #Model to use. Details for each one are in bbsDMModels.R
 modelsToUse=c('gbm','naive')

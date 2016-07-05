@@ -19,7 +19,7 @@ sdmModels=function(data, modelName, modelFormula){
   
   #Train on a single time period (always set 1), but test on all of them. including the training data. 
   #probability scores from training data are needed for temporal validation plots. 
-  trainData=data %>% filter(type=='train')
+  trainData=data %>% filter(windowID==1)
   testData=data
   
   if(modelName=='rf'){ #presence/absence needs to be factor

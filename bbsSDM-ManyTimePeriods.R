@@ -111,23 +111,46 @@ bioclimData = bioclimData %>%
 modelSetMatrix=data.frame()
 setID=1
 
-temp=data.frame(Year=timeRange, train=NA) %>%
-  mutate(train=ifelse(Year %in% training_years, 'train','test'))
-
 for(this_spatial_scale in spatial_cell_sizes){
-  thisSetDF=temp
-  thisSetDF$setID=setID
-  thisSetDF$spatial_scale=this_spatial_scale
-  thisSetDF$windowSize=1
-  setID=setID+1
-  modelSetMatrix=bind_rows(modelSetMatrix, thisSetDF)
+  for(thisOffset in yearlyOffsets){
+    for(this_temporal_scale in temporal_scales){
+      #The number of yearly sets given this window size and the number of years in study set.
+      #ie for 10 years of data with 3 year window size = 3 sets (and 1 year leftover)
+      numSets=floor((length(timeRange)-thisOffset)/this_temporal_scale)
+      
+      #Produce an array partitioning each of the study years into a set for this window size.
+      #the 1st set (identified by 1's) is added on at the end, so that excess years due to window
+      #size not being a multiple of total years can be used as padding to reduce temporal autocorrelation.
+      #Hopefully that makes sense. ask shawn to explain if not. 
+      windowIdentifier=c()
+      ones=c()
+      for(i in 1:this_temporal_scale){
+        windowIdentifier=c(windowIdentifier, 2:numSets)
+        ones=c(ones, 1)
+      }
+      windowIdentifier=sort(windowIdentifier)
+      
+      #For window sizes not a multiple of the number of years in study, add -1 to remaining years.
+      while(length(c(ones,windowIdentifier))<length(timeRange)-thisOffset){
+        windowIdentifier=c(-1,windowIdentifier)
+      }
+      windowIdentifier=c(ones, windowIdentifier)
+      
+      #Pad the beginning offset years with -1
+      while(length(windowIdentifier)<length(timeRange)){
+        windowIdentifier=c(-1,windowIdentifier)
+      }
+      
+      thisSetDF=data.frame(temporal_scale=this_temporal_scale, spatial_scale=this_spatial_scale, Year=timeRange, offset=thisOffset, windowID=windowIdentifier, setID=setID)
+      setID=setID+1
+      modelSetMatrix=bind_rows(modelSetMatrix, thisSetDF)
+    }
+  }
 }
 
-
-
 modelSetMatrix = modelSetMatrix %>%
-  spread(Year, train)
-rm(temp, setID, thisSetDF)
+  spread(Year, windowID)
+rm(windowIdentifier, setID, thisSetDF)
 
 #####################################################################
 #Convert sites to cells
@@ -166,36 +189,38 @@ siteDataMatrix=data.frame()
 
 for(thisSetID in unique(modelSetMatrix$setID)){
   #Get the yearly sets to use (ie. set1: 80-84, set2: 85-89, etc) and other info about this set
-  thisSetYears=modelSetMatrix %>% filter(setID==thisSetID) %>% gather(Year, type, -windowSize, -setID, -spatial_scale)
+  thisSetYears=modelSetMatrix %>% filter(setID==thisSetID) %>% gather(Year, windowID, -temporal_scale, -setID, -spatial_scale, -offset)
   #thisWindowSize=modelSetMatrix %>% filter(setID==thisSetID) %>% extract2('windowSize')
   this_spatial_scale=modelSetMatrix %>% filter(setID==thisSetID) %>% extract2('spatial_scale')
-  thisSetYears=thisSetYears %>% dplyr::select(Year, type)
+  this_temporal_scale=modelSetMatrix %>% filter(setID==thisSetID) %>% extract2('temporal_scale')
+  thisSetYears=thisSetYears %>% dplyr::select(Year, windowID)
   
   #List of sites and the number of years coverage they have within a particular windowID within this setID
   thisSetSiteInfo= spatial_grid_info %>%
     filter(cellSize==this_spatial_scale) %>%
     left_join(thisSetYears, by='Year') %>%
-    group_by(type, cellID, cellSize) %>%
+    group_by(windowID, cellID, cellSize) %>%
     summarize(nYears=n()) %>%
     ungroup() %>%
-    #This fills in sites that are not covered *period* in the 1st training window. They need to have 0 value
+    #This full_join fills in sites that are not covered *period* in the 1st training window. They need to have 0 value
     #to be excluded from the analysis in the next step.
-    full_join( data.frame(type='train', cellID=unique(spatial_grid_info$cellID)), by=c('cellID','type')) 
+    full_join( data.frame(windowID=1, cellID=unique(spatial_grid_info$cellID)), by=c('cellID','windowID')) 
   
   thisSetSiteInfo$nYears[is.na(thisSetSiteInfo$nYears)]=0
   
   #List of sites to drop completely because they don't have adequate coverage
   #in the training set
   dropSites= thisSetSiteInfo %>%
-    filter(type=='train' & nYears < length(training_years)*0.8) %>%
+    filter(windowID==1 & nYears < this_temporal_scale*0.8) %>%
     extract2('cellID') %>%
     unique()
 
   thisSetSiteInfo=thisSetSiteInfo %>%
-    filter(!cellID %in% dropSites) 
+    filter(!cellID %in% dropSites) %>%
     #Of those remaining, drop any sites on a per set basis if they don't have
     #adequate coverage in a particule set
-    #filter((windowID > 1 & nYears >= thisWindowSize*0.66) | (windowID<=1))
+    filter((windowID > 1 & nYears >= this_temporal_scale*0.66) | (windowID==1)) %>%
+    dplyr::select(-nYears)
 
   #Average all bioclim over this spatial scale. subset to sites
   #with adequate temporal coverage. 
@@ -204,20 +229,20 @@ for(thisSetID in unique(modelSetMatrix$setID)){
     rename(Year=year) %>%
     mutate(Year=as.factor(Year)) %>%
     left_join(thisSetYears, by='Year') %>%
-    #group_by(windowID, cellID) %>%
-    #summarize_each(funs(mean), -Year,-cellID, -cellSize) %>%
-    #ungroup() %>%
+    group_by(windowID, cellID) %>%
+    summarize_each(funs(mean), -Year,-cellID, -cellSize) %>%
+    ungroup() %>%
     filter(cellID %in% thisSetSiteInfo$cellID)
   
-  #thisSetSiteInfo = thisSetSiteInfo %>%
-  #  left_join(thisSetWeather, by=c('windowID','siteID')) %>%
-  #  filter(!is.na(bio1))
+  thisSetSiteInfo = thisSetSiteInfo %>%
+    left_join(thisSetWeather, by=c('windowID','cellID')) %>%
+    filter(!is.na(bio1))
   
-  thisSetWeather$setID=thisSetID
+  thisSetSiteInfo$setID=thisSetID
   
-  siteDataMatrix = bind_rows(siteDataMatrix, thisSetWeather)
+  siteDataMatrix = bind_rows(siteDataMatrix, thisSetSiteInfo)
   }
-rm(thisSetSiteInfo, thisSetWeather, thisSetYears, thisWindowSize, dropSites, thisSetID, bioclimData)
+rm(thisSetSiteInfo, thisSetWeather, thisSetYears, this_temporal_scale, dropSites, thisSetID, bioclimData)
 
 ###################################################################
 #BBS occurance data is for individual sites. Need to convert all those to presences
@@ -234,22 +259,24 @@ occData=occData %>%
 #
 ###################################################################
 processSpDataToWindowSize=function(spData, thisSetID){
-  #Get the window ID for all the years
-  thisSetYears=modelSetMatrix %>% filter(setID==thisSetID) %>% gather(Year, type, -windowSize, -setID, -spatial_scale)
-  #thisWindowSize=modelSetMatrix %>% filter(setID==thisSetID) %>% extract2('windowSize')
+  this_temporal_scale=modelSetMatrix %>% filter(setID==thisSetID) %>% extract2('temporal_scale')
   this_spatial_scale=modelSetMatrix %>% filter(setID==thisSetID) %>% extract2('spatial_scale')
   
-  thisSetYears=thisSetYears %>% dplyr::select(Year, type)
+  #Get the window ID for all the years, which assigns years for temporal averaging according to the
+  #temporal scale of this set ID
+  thisSetYears=modelSetMatrix %>% 
+    filter(setID==thisSetID) %>% 
+    gather(Year, windowID, -temporal_scale, -setID, -spatial_scale, -offset) %>%
+    dplyr::select(Year, windowID)
   
   spData$Year=as.factor(spData$Year) #change to factor to work in join
   
-  spData$presence=1
-  #Get presence data for this species summarized by the windowIDs
-  #x=spData %>%
-  #  left_join(thisSetYears, by='Year') %>%
-  #  dplyr::select(Aou, cellID, windowID) %>%
-  #  distinct() %>%
-  #  mutate(presence=1)
+  #Summarize presence across the window ID's of this temporal scale
+  spData=spData %>%
+    left_join(thisSetYears, by='Year') %>%
+    dplyr::select(Aou, cellID, windowID) %>%
+    distinct() %>%
+    mutate(presence=1)
   
   #Merge with the site data matrix to get absences & bioclim data at the same time
   #this is a left_join here because siteDataMatrix only includes sites that have been
@@ -257,7 +284,7 @@ processSpDataToWindowSize=function(spData, thisSetID){
   x=  siteDataMatrix %>%
     filter(setID==thisSetID) %>%
     dplyr::select(-cellSize) %>%
-    left_join(spData, by=c('cellID','Year')) %>%  
+    left_join(spData, by=c('cellID','windowID')) %>%  
     mutate(presence=ifelse(is.na(presence), 0, 1)) 
   
   return(x)
@@ -293,12 +320,20 @@ updateResults=function(results){
 #Keeping it in a local DF is used for testing on a small number of species. 
 writeToDB=FALSE
 
+focal_spp=c(7360, #Carolina chickadee
+            6010, #painted bunting
+            3100, #wild turky
+            4100 #Golden-fronted Woodpecker
+)
+
 #finalDF=foreach(thisSpp=unique(occData$Aou)[1:3], .combine=rbind, .packages=c('dplyr','tidyr','magrittr','DBI')) %do% {
-finalDF=foreach(thisSpp=unique(occData$Aou)[1:2], .combine=rbind, .packages=c('dplyr','tidyr','magrittr','DBI','RPostgreSQL')) %dopar% {
+#finalDF=foreach(thisSpp=unique(occData$Aou)[1:2], .combine=rbind, .packages=c('dplyr','tidyr','magrittr','DBI','RPostgreSQL')) %dopar% {
+finalDF=foreach(thisSpp=focal_spp, .combine=rbind, .packages=c('dplyr','tidyr','magrittr','DBI','RPostgreSQL')) %dopar% {
   thisSppResults=data.frame()
   for(thisSetID in modelSetMatrix$setID){
-    #thisWindowSize=modelSetMatrix %>% filter(setID==thisSetID) %>% extract2('windowSize')
     this_spatial_scale=modelSetMatrix %>% filter(setID==thisSetID) %>% extract2('spatial_scale')
+    this_temporal_scale=modelSetMatrix %>% filter(setID==thisSetID) %>% extract2('temporal_scale')
+    
     #Process the data. excluding sites with low coverage, add bioclim variables, aggregating years into single widow size 
     #occurance, labeling those occurances, etc. 
     thisSppData=dplyr::filter(occData, Aou==thisSpp, cellSize==this_spatial_scale)
@@ -309,7 +344,7 @@ finalDF=foreach(thisSpp=unique(occData$Aou)[1:2], .combine=rbind, .packages=c('d
     #Only use species that have >20 sites with at least 1 occurance
     #in the training period
     if( thisSppData %>%
-            filter(type=='train', presence==1) %>%
+            filter(windowID==1, presence==1) %>%
             dplyr::select(cellID) %>%
             distinct() %>%
             nrow() < 20 ) { 
@@ -325,9 +360,9 @@ finalDF=foreach(thisSpp=unique(occData$Aou)[1:2], .combine=rbind, .packages=c('d
 
     #A template to create results for each model in modelsToUse
     modelResultsTemplate=thisSppData %>%
-      dplyr::select(Year, presence, cellID, setID)
+      dplyr::select(presence, cellID, setID, windowID)
     
-    #All the different model results will be pasted together in here
+    #All the different model results for this set will be pasted together in here
     modelResults=data.frame()
     
     #Source the model script here inside the parallel loop so the packages get loaded in all the parallel threads.
