@@ -12,107 +12,95 @@ library(Metrics)
 
 sppNames=read.csv('~/data/bbs/BBS_species.csv') %>%
   rename(name=english_common_name, Aou=AOU) %>%
-  select(name, Aou)
+  dplyr::select(name, Aou)
 
 
 #Focal species from Waitling et al. 2013
 #Wild turkey, greater sage-grouse, Greater prairie chicken, Gambel's quail, Red-headed woodpecker, red-bellied woodpecker, fish crow
 #carolina chickadee, carolina wren, bewick's wren, backmans sparrow, tricolored blackbird
-focal_spp=c(3100, 3090, 3050, 2950, 4060, 4090, 4900, 7360, 7180, 7190, 5750, 5000)
-
+#focal_spp=c(3100, 3090, 3050, 2950, 4060, 4090, 4900, 7360, 7180, 7190, 5750, 5000)
+focal_spp=c(7360, #Carolina chickadee
+            6010, #painted bunting
+            3100, #wild turky
+            4100 #Golden-fronted Woodpecker
+)
 
 source('config.R')
 
-results=tbl(database, 'modelResults')
+#results=tbl(database, 'modelResults')
+results=read.csv('results/bbsSDMResults.csv')
 
+#############################################
+
+brier=function(obs, pred, reliability=FALSE, bins=c(0.2,0.5,0.7)){
+  return(mean((pred-obs)^2))
+}
+
+brier_reliability=function(obs, pred){
+  x=verification::verify(obs, pred, bins=T, thresholds = seq(0,1,0.1), show=FALSE)$bs.reliability
+  return(x)
+}
 
 ############################################
-#Build temporal scaling info
+#Forecast skill over time. all species in 1 graph
+temp=results %>%
+  dplyr::filter(windowID>1) %>% #Don't use the training data
+  dplyr::group_by(temporal_scale, cellSize, windowID, modelName, offset, Aou) %>%
+  dplyr::summarize(brier=1-brier(presence, prediction)) %>%
+  dplyr::ungroup() %>%
+  tidyr::spread(modelName, brier) %>%
+  dplyr::mutate(skill=1-(gbm/naive)) %>%
+  dplyr::filter(!is.infinite(skill)) %>%
+  #dplyr::mutate(skill=ifelse(is.nan(skill), 0, ifelse(skill<(-1), -1, skill))) %>%
+  dplyr::group_by(temporal_scale, cellSize, windowID, Aou) %>%
+  dplyr::summarize(skill=mean(skill), model_brier=mean(gbm), naive_brier=mean(naive)) %>%
+  dplyr::mutate(time_lag=(windowID*temporal_scale) - (temporal_scale/2)) %>%
+  dplyr::left_join(sppNames)
 
-model_set_matrix=data.frame()
-setID=1
+ggplot(temp, aes(x=time_lag, y=skill, colour=name, group=name)) +
+  geom_point() +
+  geom_line() +
+  geom_hline(yintercept = 0) +
+  theme_bw() +
+  facet_grid(cellSize~temporal_scale, labeller=label_both) 
 
-testing_years=sort(timeRange[!timeRange %in% training_years])
-
-for(this_temporal_scale in temporal_scales){
-  #if(this_temporal_scale==1){next} #the base predictions are all temporal scale of 1
-  
-  numSets=floor((length(testing_years)/this_temporal_scale))
-  
-  temporal_replicate=c()
-  for(i in 1:this_temporal_scale){
-    temporal_replicate=c(temporal_replicate, 1:numSets)
-  }
-  temporal_replicate=sort(temporal_replicate)
-  
-  while(length(temporal_replicate)<(length(testing_years))){
-    temporal_replicate=c(-1, temporal_replicate)
-  }
-  
-  for(this_spatial_scale in spatial_cell_sizes){
-    this_set_df=data.frame(temporal_scale=this_temporal_scale, spatial_scale=this_spatial_scale, Year=as.factor(testing_years), temporal_replicate=temporal_replicate, setID=setID)
-    setID=setID+1
-    model_set_matrix=bind_rows(model_set_matrix, this_set_df)
-  }
-  
-}
-
-
-
-#############################################
-#Tur
-apply_temporal_scale=function(df, this_temporal_scale){
-  df=df %>%
-    select(-setID)
-  y=model_set_matrix %>%
-    filter(temporal_scale==this_temporal_scale) %>%
-    left_join(df, by=c('Year','spatial_scale'='cellSize')) %>%
-    group_by(temporal_replicate, spatial_scale, cellID, temporal_scale) %>%
-    summarize(presence=max(presence), prediction=(1-prod(1-prediction)))
-  return(y)
-}
-
-#############################################
-
-
-x=data.frame()
+#################################################
+#Forecast skill over time. grid of temporal_scale~spatial_scale
+#1 graph for each species
 for(this_sp in focal_spp){
   results_this_sp=results %>%
-    filter(Aou==this_sp) %>%
-    collect() 
+    filter(Aou==this_sp) 
   if(nrow(results_this_sp)==0){next}
   
-  for(this_temporal_scale in temporal_scales){
-    temp=results_this_sp %>%
-      apply_temporal_scale(this_temporal_scale) %>%
-      group_by(spatial_scale,temporal_replicate) %>%
-      summarize(auc=auc(presence, prediction), logloss=logLoss(as.integer(presence), prediction)) %>%
-      ungroup()
-    
-    temp$Aou=this_sp
-    temp$temporal_scale=this_temporal_scale
-    x=x %>%
-      bind_rows(temp)
-  }
-}
-
-
-x=x %>%
-  filter(temporal_replicate>0) %>%
-  mutate(year_lag=(temporal_replicate * temporal_scale)-(temporal_scale/2) )
-
-for(this_sp in focal_spp){
-  this_sp_data=x %>% filter(Aou==this_sp)
-  this_sp_name=sppNames %>%
-    filter(Aou==this_sp) %>%
+  temp=results_this_sp %>%
+    dplyr::filter(windowID>1) %>% #Don't use the training data
+    dplyr::group_by(temporal_scale, cellSize, windowID, modelName, offset) %>%
+    dplyr::summarize(brier=1-brier(presence, prediction)) %>%
+    dplyr::ungroup() %>%
+    tidyr::spread(modelName, brier) %>%
+    #mutate(skill=(gbm-naive)/(1-naive)) %>%
+    #mutate(skill=1-(gbm/naive)) %>%
+    #mutate(skill=ifelse(is.nan(skill), 0, ifelse(skill<(-1), -1, skill))) %>%
+    dplyr::group_by(temporal_scale, cellSize, windowID) %>%
+    dplyr::summarize(model_brier=mean(gbm), naive_brier=mean(naive)) %>%
+    dplyr::mutate(time_lag=(windowID*temporal_scale) - (temporal_scale/2))
+  
+  sp_name=sppNames %>%
+    dplyr::filter(Aou==this_sp) %>%
     extract2('name')
-  if(nrow(this_sp_data)==0){print(paste('skipping:',this_sp)); next}
-  this_plot=ggplot(this_sp_data, aes(y=auc, x=year_lag)) + 
-            geom_point() + geom_line() +
-            facet_grid(temporal_scale ~ spatial_scale) +
-            ggtitle(paste(this_sp,this_sp_name))
-  print(this_plot)
-
+  
+  
+  this_sp_plot=ggplot(temp, aes(x=time_lag)) + 
+    geom_point(aes(y=model_brier), color='red') + 
+    geom_line(aes(y=model_brier), color='red')+
+    geom_point(aes(y=naive_brier), color='black') + 
+    geom_line(aes(y=naive_brier), color='black')+
+    facet_grid(cellSize~temporal_scale, labeller=label_both) +
+    ggtitle(sp_name)
+    
+  print(this_sp_plot)
+  
+  
 }
 
 
