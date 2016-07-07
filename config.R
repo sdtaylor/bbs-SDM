@@ -13,7 +13,7 @@ temporal_scales=c(1,3,5,10)
 training_years=1971:1980
 
 #Spatial scale to use. These are width & height of grid cells in degrees. 
-spatial_cell_sizes=c(0.1, 0.25, 0.5, 1.0, 2.0)
+spatial_cell_sizes=c(0.1, 2.0)
 
 #These are the offsets which scooch the analysis forward n years at a time to average out climatic variability
 #0 means no offset. 

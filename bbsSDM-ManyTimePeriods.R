@@ -162,20 +162,20 @@ rm(windowIdentifier, setID, thisSetDF)
 spatial_grid_info=get_spatial_grid_info() %>%
   left_join(siteList, by='siteID') %>%
   group_by(cellID, cellSize, Year) %>%
-  summarize(num_sites=n()) %>%
+  summarize(num_sites_in_cell=n()) %>%
   ungroup() %>%
   filter(!is.na(Year))
 
 cell_size_median_sites=spatial_grid_info %>%
   group_by(cellSize, Year) %>%
-  summarize(median_num_sites=median(num_sites))%>%
+  summarize(median_num_sites=median(num_sites_in_cell))%>%
   ungroup()
 
 #A list of cell's that will be used within each spatial scale
 spatial_grid_info = spatial_grid_info %>%
   left_join(cell_size_median_sites, by=c('cellSize','Year')) %>%
-  filter(num_sites>=median_num_sites) %>%
-  dplyr::select(-num_sites, -median_num_sites)
+  filter(num_sites_in_cell>=median_num_sites) %>%
+  dplyr::select(-median_num_sites)
 
 #Where all the sites are actually located. 
 site_id_cell_id=get_spatial_grid_info()
@@ -185,8 +185,13 @@ site_id_cell_id=get_spatial_grid_info()
 #Also ensure a minimum number of years covered in the temporal scales
 #######################################################################
 #Filter sites based on coverage within a particular windowID
-#calculate weather data for all those sites. 
+
+#Holds the bioclim variables for each cell with each temporal/spatial scale
 siteDataMatrix=data.frame()
+
+#This df holds how many sites are within each cell/windowID
+total_sites_per_cell_window_id=data.frame()
+  
 
 for(thisSetID in unique(modelSetMatrix$setID)){
   #Get the yearly sets to use (ie. set1: 80-84, set2: 85-89, etc) and other info about this set
@@ -201,18 +206,18 @@ for(thisSetID in unique(modelSetMatrix$setID)){
     filter(cellSize==this_spatial_scale) %>%
     left_join(thisSetYears, by='Year') %>%
     group_by(windowID, cellID, cellSize) %>%
-    summarize(nYears=n()) %>%
+    summarize(n_years=n(), total_sites=sum(num_sites_in_cell)) %>% #total number of sites in this spatial cell AND within this temporal window of >= 1 years
     ungroup() %>%
     #This full_join fills in sites that are not covered *period* in the 1st training window. They need to have 0 value
     #to be excluded from the analysis in the next step.
     full_join( data.frame(windowID=1, cellID=unique(spatial_grid_info$cellID)), by=c('cellID','windowID')) 
   
-  thisSetSiteInfo$nYears[is.na(thisSetSiteInfo$nYears)]=0
+  thisSetSiteInfo$n_years[is.na(thisSetSiteInfo$n_years)]=0
   
   #List of sites to drop completely because they don't have adequate coverage
   #in the training set
   dropSites= thisSetSiteInfo %>%
-    filter(windowID==1 & nYears < this_temporal_scale*0.8) %>%
+    filter(windowID==1 & n_years < this_temporal_scale*0.8) %>%
     extract2('cellID') %>%
     unique()
 
@@ -220,9 +225,14 @@ for(thisSetID in unique(modelSetMatrix$setID)){
     filter(!cellID %in% dropSites) %>%
     #Of those remaining, drop any sites on a per set basis if they don't have
     #adequate coverage in a particule set
-    filter((windowID > 1 & nYears >= this_temporal_scale*0.66) | (windowID==1)) %>%
-    dplyr::select(-nYears)
+    filter((windowID > 1 & n_years>= this_temporal_scale*0.66) | (windowID==1)) %>%
+    dplyr::select(-n_years)
 
+  #Save this info to use the total site samples per cell and temporal window for later. 
+  total_sites_per_cell_window_id = thisSetSiteInfo %>%
+    mutate(setID=thisSetID) %>%
+    bind_rows(total_sites_per_cell_window_id)
+  
   #Average all bioclim over this spatial scale. subset to sites
   #with adequate temporal coverage. 
   thisSetWeather=bioclimData %>%
@@ -251,8 +261,8 @@ rm(thisSetSiteInfo, thisSetWeather, thisSetYears, this_temporal_scale, dropSites
 #Temporal scales.
 occData=occData %>%
   left_join(site_id_cell_id, by='siteID') %>%
-  dplyr::select(-siteID) %>%
-  distinct()
+  dplyr::select(-siteID) 
+  #distinct()
 
 ####################################################################
 #Process data for a single species to a specific window size in prep for modeling.
@@ -276,8 +286,34 @@ processSpDataToWindowSize=function(spData, thisSetID){
   spData=spData %>%
     left_join(thisSetYears, by='Year') %>%
     dplyr::select(Aou, cellID, windowID) %>%
-    distinct() %>%
+    #distinct() %>%
     mutate(presence=1)
+  
+  #Fill in absences by subtracting the total number of sites sampled in `total_sites_per_cell_window_id`
+  #with the presences in spData for each cell/windowID. 
+  num_sampled_sites=total_sites_per_cell_window_id %>%
+    filter(setID==thisSetID)
+  
+  for(i in 1:nrow(num_sampled_sites)){
+    this_window_id=num_sampled_sites$windowID[i]
+    this_cell_id  =num_sampled_sites$cellID[i]
+    total_sites   =num_sampled_sites$total_sites[i]
+    
+    current_samples=spData %>%
+      filter(windowID==this_window_id, cellID==this_cell_id) %>%
+      nrow()
+    
+    difference=total_sites-current_samples
+    if(difference < 0){ 
+      warning(paste('total sites < current samples for some reason', difference))
+    } else {
+    absences= data.frame(windowID=this_window_id, cellID=this_cell_id, Aou=7360, presence=0)
+    absences= do.call('rbind', replicate(difference, absences, simplify = FALSE ))
+  
+    spData = spData %>%
+      bind_rows(absences)
+    } 
+  }
   
   #Merge with the site data matrix to get absences & bioclim data at the same time
   #this is a left_join here because siteDataMatrix only includes sites that have been
@@ -285,8 +321,8 @@ processSpDataToWindowSize=function(spData, thisSetID){
   x=  siteDataMatrix %>%
     filter(setID==thisSetID) %>%
     dplyr::select(-cellSize) %>%
-    left_join(spData, by=c('cellID','windowID')) %>%  
-    mutate(presence=ifelse(is.na(presence), 0, 1)) 
+    left_join(spData, by=c('cellID','windowID')) 
+    #mutate(presence=ifelse(is.na(presence), 0, 1)) 
   
   return(x)
 }
@@ -355,7 +391,7 @@ finalDF=foreach(thisSpp=focal_spp, .combine=rbind, .packages=c('dplyr','tidyr','
       next }
     
     #Most models need presence/absence treated as factors.
-    thisSppData$presence = as.factor(thisSppData$presence)
+    thisSppData$presence = as.numeric(thisSppData$presence)
 
     # -1 windowID was just years that didn't eventy divide into this window size. Don't need them any more
     #thisSppData = thisSppData %>%
@@ -382,6 +418,15 @@ finalDF=foreach(thisSpp=focal_spp, .combine=rbind, .packages=c('dplyr','tidyr','
       modelResults=modelResults %>%
         bind_rows(modelResultsTemplate)
     }
+
+    modelResults = modelResults %>%
+      group_by(cellID, windowID, modelName) %>%
+      summarise(presence=mean(as.integer(as.character(presence))), prediction_mean=mean(prediction), predicion_sd=sd(prediction)) %>%
+      mutate(error=(prediction_mean-presence)^2) %>%
+      filter(windowID>1) %>%
+      group_by(modelName) %>%
+      summarize(mse=mean(error))
+  
     
     #Setup a results dataframe for TV validation plot accuracy. 
     #for each site in each window ID this creates a T1_actual and T2_actual. 
@@ -428,4 +473,4 @@ finalDF=foreach(thisSpp=focal_spp, .combine=rbind, .packages=c('dplyr','tidyr','
 }
 
 #Not needed when writing results to DB
-#write.csv(finalDF,resultsFile,row.names = FALSE)
+write.csv(finalDF,resultsFile,row.names = FALSE)
