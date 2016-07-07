@@ -32,9 +32,10 @@ if(is.na(args[1])){
   
 } else if(args[1]=='hipergator') {
   print('Running on hipergator')
-  dataFolder='/scratch/lfs/shawntaylor/data/bbs/'
+  #dataFolder='/scratch/lfs/shawntaylor/data/bbs/'
+  dataFolder='/ufrc/ewhite/shawntaylor/data/bbs/'
   numProcs=32
-  resultsFile=paste('/scratch/lfs/shawntaylor/data/bbs/bbsSDMResults_ManyTimePeriods_Raw.csv',sep='')
+  resultsFile='./results/bbsSDMResults.csv'
   rawResultsFile='/scratch/lfs/shawntaylor/data/bbs/bbsSDMResults_ManyTimePeriods_Raw.csv'
   
 }
@@ -333,6 +334,8 @@ finalDF=foreach(thisSpp=focal_spp, .combine=rbind, .packages=c('dplyr','tidyr','
   for(thisSetID in modelSetMatrix$setID){
     this_spatial_scale=modelSetMatrix %>% filter(setID==thisSetID) %>% extract2('spatial_scale')
     this_temporal_scale=modelSetMatrix %>% filter(setID==thisSetID) %>% extract2('temporal_scale')
+    this_offset=modelSetMatrix %>% filter(setID==thisSetID) %>% extract2('offset')
+    
     
     #Process the data. excluding sites with low coverage, add bioclim variables, aggregating years into single widow size 
     #occurance, labeling those occurances, etc. 
@@ -403,7 +406,7 @@ finalDF=foreach(thisSpp=focal_spp, .combine=rbind, .packages=c('dplyr','tidyr','
 
     #Species and window size for this set of models. 
     modelResults = modelResults %>%
-      mutate(Aou=thisSpp,setID=thisSetID, cellSize=this_spatial_scale) 
+      mutate(Aou=thisSpp,setID=thisSetID, cellSize=this_spatial_scale, temporal_scale=this_temporal_scale, offset=this_offset) 
     
 
     
