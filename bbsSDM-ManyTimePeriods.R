@@ -363,11 +363,15 @@ focal_spp=c(7360, #Carolina chickadee
             4100 #Golden-fronted Woodpecker
 )
 
+parallel_process_iteration=expand.grid(Aou=focal_spp, setID=unique(modelSetMatrix$setID))
+
 #finalDF=foreach(thisSpp=unique(occData$Aou)[1:3], .combine=rbind, .packages=c('dplyr','tidyr','magrittr','DBI')) %do% {
 #finalDF=foreach(thisSpp=unique(occData$Aou)[1:2], .combine=rbind, .packages=c('dplyr','tidyr','magrittr','DBI','RPostgreSQL')) %dopar% {
-finalDF=foreach(thisSpp=focal_spp, .combine=rbind, .packages=c('dplyr','tidyr','magrittr','DBI','RPostgreSQL')) %dopar% {
-  thisSppResults=data.frame()
-  for(thisSetID in modelSetMatrix$setID){
+finalDF=foreach(i=1:5, .combine=rbind, .packages=c('dplyr','tidyr','magrittr','DBI','RPostgreSQL')) %dopar% {
+
+    thisSpp=parallel_process_iteration$Aou[i]
+    thisSetID=parallel_process_iteration$setID[i]
+    
     this_spatial_scale=modelSetMatrix %>% filter(setID==thisSetID) %>% extract2('spatial_scale')
     this_temporal_scale=modelSetMatrix %>% filter(setID==thisSetID) %>% extract2('temporal_scale')
     this_offset=modelSetMatrix %>% filter(setID==thisSetID) %>% extract2('offset')
@@ -419,15 +423,22 @@ finalDF=foreach(thisSpp=focal_spp, .combine=rbind, .packages=c('dplyr','tidyr','
         bind_rows(modelResultsTemplate)
     }
 
+    #site_totals=thisSppData %>%
+    #  dplyr::select(windowID, cellID, total_sites) %>%
+    #  dplyr::distinct
+    
+    
+    
     modelResults = modelResults %>%
       group_by(cellID, windowID, modelName) %>%
-      summarise(presence=mean(as.integer(as.character(presence))), prediction_mean=mean(prediction), predicion_sd=sd(prediction)) %>%
+      summarise(presence=mean(as.integer(as.character(presence))), prediction_mean=mean(prediction), predicion_sd=sd(prediction), n=n()) %>%
       mutate(error=(prediction_mean-presence)^2) %>%
       filter(windowID>1) %>%
       group_by(modelName) %>%
-      summarize(mse=mean(error))
-  
-    
+      summarize(mse=mean(error), num_cubes=n(), sum_of_sq=mean(prediction_mean^2 + presence^2)) %>%
+      ungroup() %>%
+      mutate(fss = 1-(mse/sum_of_sq))
+
     #Setup a results dataframe for TV validation plot accuracy. 
     #for each site in each window ID this creates a T1_actual and T2_actual. 
     #Note there are many T2's to compare (from ever increasing gap between time), but only a single T1. 
@@ -455,21 +466,13 @@ finalDF=foreach(thisSpp=focal_spp, .combine=rbind, .packages=c('dplyr','tidyr','
     
 
     
-    #Append results to the database results table or the results DF
+    #Append results to the database results table or return to finalDF if testing
     if(writeToDB){
       updateResults(modelResults)
     } else {
-      #add results to final dataframe to be written as a csv - CSV Output
-      thisSppResults=bind_rows(thisSppResults, modelResults)
+      return(modelResults)
     }
     
-    
-  } 
-  #This gets returned to be added to the finalDF dataframe. 
-  #Not needed when writing results to DB - CSV OutPut
-  if(!writeToDB){
-    return(thisSppResults)
-  }
 }
 
 #Not needed when writing results to DB
