@@ -357,17 +357,19 @@ updateResults=function(results){
 #Keeping it in a local DF is used for testing on a small number of species. 
 writeToDB=FALSE
 
-focal_spp=c(7360, #Carolina chickadee
-            6010, #painted bunting
-            3100, #wild turky
-            4100 #Golden-fronted Woodpecker
+focal_spp=c(5840, #swamp sparrow. no shift
+            7350, #Black capped chickadee. no shift
+            3100, #wild turkey. northern shift (only in La Sorte & Thompson 2007 )
+            6100, #Summer Tanager. northern shift
+            7190, #bewicks wren. southern shift 
+            5170 #Purple finch. no shift
 )
 
 parallel_process_iteration=expand.grid(Aou=focal_spp, setID=unique(modelSetMatrix$setID))
 
 #finalDF=foreach(thisSpp=unique(occData$Aou)[1:3], .combine=rbind, .packages=c('dplyr','tidyr','magrittr','DBI')) %do% {
 #finalDF=foreach(thisSpp=unique(occData$Aou)[1:2], .combine=rbind, .packages=c('dplyr','tidyr','magrittr','DBI','RPostgreSQL')) %dopar% {
-finalDF=foreach(i=1:5, .combine=rbind, .packages=c('dplyr','tidyr','magrittr','DBI','RPostgreSQL')) %dopar% {
+finalDF=foreach(i=1:nrow(parallel_process_iteration), .combine=rbind, .packages=c('dplyr','tidyr','magrittr','DBI','RPostgreSQL')) %dopar% {
 
     thisSpp=parallel_process_iteration$Aou[i]
     thisSetID=parallel_process_iteration$setID[i]
