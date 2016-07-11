@@ -2,12 +2,9 @@
 
 library(dplyr)
 library(tidyr)
-library(doParallel)
 library(magrittr)
 library(stringr)
-library(DBI)
 library(ggplot2)
-library(RColorBrewer)
 library(Metrics)
 
 sppNames=read.csv('~/data/bbs/BBS_species.csv') %>%
@@ -102,5 +99,145 @@ for(this_sp in focal_spp){
   
   
 }
+
+#######################################################3
+#fractional skill score graph
+
+results=read.csv('results/bbsSDMResults.csv') %>%
+  filter(!is.na(Aou))
+
+for(this_sp in unique(results$Aou)){
+  for(this_model in c('gbm','naive')){
+  #results_this_sp=results %>%
+  #  filter(Aou==this_sp) %>%
+  #  spread(modelName, mse) %>%
+  #  mutate(skill=1-(gbm/naive)) %>%
+  #  group_by(temporal_scale, cellSize) %>%
+  # summarize(skill=mean(skill)) %>%
+  #  ungroup()
+  results_this_sp =results %>%
+    filter(Aou==this_sp, modelName==this_model) %>%
+    group_by(temporal_scale, cellSize) %>%
+    summarize(skill=mean(fss), skill_sd=sd(fss)) %>%
+    ungroup()
+  
+  
+  sp_name=sppNames %>%
+    dplyr::filter(Aou==this_sp) %>%
+    extract2('name')
+  
+  this_sp_plot=ggplot(results_this_sp, aes(as.factor(cellSize), as.factor(temporal_scale), fill=skill, label=paste(round(skill, 2), round(skill_sd, 2), sep='-'))) +
+    geom_raster() +
+    scale_fill_gradient(low='grey100', high='grey40') + 
+    geom_text() +
+    ggtitle(paste(sp_name, this_model, sep=' - '))
+    
+  print(this_sp_plot)
+  }
+}
+
+
+#######################################################3
+#fractional skill score graph with time lags
+
+focal_spp=c(5840, #swamp sparrow. no shift
+            7350, #Black capped chickadee. no shift
+            3100, #wild turkey. northern shift (only in La Sorte & Thompson 2007 )
+            6100, #Summer Tanager. northern shift
+            7190, #bewicks wren. southern shift 
+            5170 #Purple finch. no shift
+)
+
+
+sppNames=read.csv('~/data/bbs/BBS_species.csv') %>%
+  rename(name=english_common_name, Aou=AOU) %>% 
+  filter(Aou %in% focal_spp) %>%
+  dplyr::select(name, Aou)
+
+results=read.csv('results/bbsSDMResults_with_timelags.csv') %>%
+  filter(!is.na(Aou))
+
+
+#A few spp in one graph
+
+results_summarized =results %>%
+  filter(modelName=='gbm', Aou %in% focal_spp) %>%
+  group_by(temporal_scale, cellSize, windowID, modelName, Aou) %>%
+  summarize(skill=mean(fss), skill_sd=sd(fss)) %>%
+  ungroup() %>%
+  mutate(time_lag=(temporal_scale * windowID) - (temporal_scale/2)) %>%
+  left_join(sppNames, by='Aou')
+
+ggplot(results_summarized, aes(x=time_lag, y=skill, color=name, group=name)) +
+  geom_point() +
+  geom_line() +
+  geom_hline(yintercept = 0.8) +
+  theme_bw() +
+  facet_grid(cellSize~temporal_scale, labeller=label_both)
+
+
+
+##Iterate over each spp
+
+for(this_sp in focal_spp){
+  #for(this_model in c('gbm','naive')){
+    #results_this_sp=results %>%
+    #  filter(Aou==this_sp) %>%
+    #  spread(modelName, mse) %>%
+    #  mutate(skill=1-(gbm/naive)) %>%
+    #  group_by(temporal_scale, cellSize) %>%
+    # summarize(skill=mean(skill)) %>%
+    #  ungroup()
+    results_this_sp =results %>%
+      filter(Aou==this_sp,temporal_scale %in% c(5,10), cellSize %in% c(0.1, 1)) %>%
+      group_by(temporal_scale, cellSize, windowID, modelName) %>%
+      summarize(skill=mean(fss), skill_sd=sd(fss)) %>%
+      ungroup() %>%
+      mutate(time_lag=(temporal_scale * windowID) - (temporal_scale/2))# %>%
+      #mutate(temporal_scale=paste('Temporal Scale: ',temporal_scale,'yrs.',sep=''), cellSize=paste('Spatial Scale: ',cellSize,'°',sep=''))
+
+    
+    results_this_sp$temporal_scale = factor(results_this_sp$temporal_scale, levels=c(1,3,5,10), labels = c('Temporal Scale: 1 yrs','Temporal Scale: 3yrs','Temporal Scale: 5yrs','Temporal Scale: 10yrs'), ordered = TRUE)
+    results_this_sp$cellSize = factor(results_this_sp$cellSize, levels=c(0.1,1.0,2.0), labels = c('Spatial Scale: 0.1°','Spatial Scale: 1.0°','Spatial Scale: 2.0°'), ordered = TRUE)
+    
+    sp_name=sppNames %>%
+      dplyr::filter(Aou==this_sp) %>%
+      extract2('name')
+    
+    this_sp_plot=ggplot(results_this_sp, aes(x=time_lag, y=skill, colour=modelName, group=modelName)) +
+      geom_point(size=1) +
+      geom_line(linetype='dotted') +
+      geom_smooth(method='lm', se=FALSE, linetype='solid', size=0.9, aes(group=modelName)) +
+      geom_hline(yintercept = 0.75) +
+      theme_bw() +
+      facet_grid(cellSize~temporal_scale, labeller = label_value) +
+      ggtitle(sp_name) + theme(panel.grid.major = element_line(linetype = "blank"), 
+    panel.grid.minor = element_line(linetype = "blank"), 
+    axis.title = element_text(size = 15), 
+    axis.text = element_text(size = 11), 
+    plot.title = element_text(size = 21), 
+    legend.text = element_text(size = 20), 
+    legend.key = element_rect(fill = "white"), 
+    legend.background = element_rect(fill = "white"), 
+    strip.text.x=element_text(size=15),
+    strip.text.y=element_text(size=15),
+    legend.position = "bottom", legend.direction = "horizontal") +labs(x = "Years Into Future", 
+    y = "Fraction Skill Score", colour = NULL) + theme(axis.text = element_text(size = 12))
+    print(this_sp_plot)
+  #}
+}
+
+
+
+this_sp_plot=ggplot(filter(results_this_sp,temporal_scale %in% c(5,10), cellSize %in% c(0.1, 1)), aes(x=time_lag, y=skill, colour=modelName, group=modelName)) +
+  filter(temporal_scale %in% c(5,10), cellSize %in% c(0.1, 1))+
+  geom_point() +
+  geom_line(linetype='dotted') +
+  geom_smooth(method='lm', se=FALSE, linetype='solid', size=0.9, aes(group=modelName)) +
+  geom_hline(yintercept = 0.75) +
+  theme_bw() +
+  facet_grid(cellSize~temporal_scale, labeller=label_both) +
+  ggtitle(sp_name)
+print(this_sp_plot)
 
 
