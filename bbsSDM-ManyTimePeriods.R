@@ -382,7 +382,7 @@ finalDF=foreach(i=1:nrow(parallel_process_iteration), .combine=rbind, .packages=
     #Process the data. excluding sites with low coverage, add bioclim variables, aggregating years into single widow size 
     #occurance, labeling those occurances, etc. 
     thisSppData=dplyr::filter(occData, Aou==thisSpp, cellSize==this_spatial_scale)
-    if(nrow(thisSppData)==0){next}
+    if(nrow(thisSppData)==0){return(NA)}
     thisSppData=processSpDataToWindowSize(spData=thisSppData,thisSetID=thisSetID)
     thisSppData$Aou=thisSpp
     
@@ -394,7 +394,7 @@ finalDF=foreach(i=1:nrow(parallel_process_iteration), .combine=rbind, .packages=
             distinct() %>%
             nrow() < 20 ) { 
       print('Skipping, too few occurances')
-      next }
+      return(NA) }
     
     #Most models need presence/absence treated as factors.
     thisSppData$presence = as.numeric(thisSppData$presence)
