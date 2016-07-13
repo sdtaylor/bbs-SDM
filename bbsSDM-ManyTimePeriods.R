@@ -32,10 +32,10 @@ if(is.na(args[1])){
   
 } else if(args[1]=='hipergator') {
   print('Running on hipergator')
-  #dataFolder='/scratch/lfs/shawntaylor/data/bbs/'
-  dataFolder='/ufrc/ewhite/shawntaylor/data/bbs/'
+  dataFolder='/scratch/lfs/shawntaylor/data/bbs/'
+  #dataFolder='/ufrc/ewhite/shawntaylor/data/bbs/'
   numProcs=32
-  resultsFile='./results/bbsSDMResults.csv'
+  resultsFile='./results/bbsSDMResults_with_timelags_prob_response.csv'
   rawResultsFile='/scratch/lfs/shawntaylor/data/bbs/bbsSDMResults_ManyTimePeriods_Raw.csv'
   
 }
@@ -307,13 +307,18 @@ processSpDataToWindowSize=function(spData, thisSetID){
     if(difference < 0){ 
       warning(paste('total sites < current samples for some reason', difference))
     } else {
-    absences= data.frame(windowID=this_window_id, cellID=this_cell_id, Aou=7360, presence=0)
+    absences= data.frame(windowID=this_window_id, cellID=this_cell_id, presence=0)
     absences= do.call('rbind', replicate(difference, absences, simplify = FALSE ))
   
     spData = spData %>%
       bind_rows(absences)
     } 
   }
+  
+  spData = spData %>%
+    group_by(cellID, windowID) %>%
+    summarise(presence=mean(presence)) %>%
+    ungroup()
   
   #Merge with the site data matrix to get absences & bioclim data at the same time
   #this is a left_join here because siteDataMatrix only includes sites that have been
@@ -397,7 +402,7 @@ finalDF=foreach(i=1:nrow(parallel_process_iteration), .combine=rbind, .packages=
       return(NA) }
     
     #Most models need presence/absence treated as factors.
-    thisSppData$presence = as.numeric(thisSppData$presence)
+    #thisSppData$presence = as.numeric(thisSppData$presence)
 
     # -1 windowID was just years that didn't eventy divide into this window size. Don't need them any more
     #thisSppData = thisSppData %>%
@@ -433,7 +438,8 @@ finalDF=foreach(i=1:nrow(parallel_process_iteration), .combine=rbind, .packages=
     
     modelResults = modelResults %>%
       group_by(cellID, windowID, modelName) %>%
-      summarise(presence=mean(as.integer(as.character(presence))), prediction_mean=mean(prediction), predicion_sd=sd(prediction), n=n()) %>%
+      summarise(presence=mean(as.numeric(as.character(presence))), prediction_mean=mean(prediction), predicion_sd=sd(prediction), n=n()) %>%
+      ungroup() %>%
       mutate(error=(prediction_mean-presence)^2) %>%
       filter(windowID>1) %>%
       group_by(modelName, windowID) %>%

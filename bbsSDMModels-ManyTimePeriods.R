@@ -13,9 +13,9 @@ library(dplyr)
 sdmModels=function(data, modelName, modelFormula){
   
   #In the main script the presence/absence gets set to factors. Some models need it to be numeric though. 
-  if(modelName %in% c('gbm','ann','naive')) {
-    data$presence=as.integer(as.character(data$presence))
-  }
+  #if(modelName %in% c('gbm','ann','naive')) {
+  #  data$presence=as.integer(as.character(data$presence))
+  #}
   
   #Train on a single time period (always set 1), but test on all of them. including the training data. 
   #probability scores from training data are needed for temporal validation plots. 
@@ -27,7 +27,7 @@ sdmModels=function(data, modelName, modelFormula){
     return(predict(model, type='prob', newdata = testData)[,2])
     
   } else if(modelName=='gbm'){ #presence/absence needs to be numeric
-    model=gbm(modelFormula, n.trees=5000, distribution = 'bernoulli', interaction.depth = 4, shrinkage=0.001, 
+    model=gbm(modelFormula, n.trees=5000, distribution = 'gaussian', interaction.depth = 4, shrinkage=0.001, 
               data= trainData)
     perf=gbm.perf(model, plot.it=FALSE)
     x=predict(model, n.trees=perf, newdata=testData, type='response')
@@ -48,7 +48,8 @@ sdmModels=function(data, modelName, modelFormula){
     #Mean probability of occurance over all training years for each cell.
     mean_presence_per_site=trainData %>%
       group_by(cellID) %>% 
-      summarize(predict=mean(as.integer(as.character(presence)))) %>%
+      #summarize(predict=mean(as.integer(as.character(presence)))) %>%
+      summarize(predict=mean(presence)) %>%
       ungroup()
     
     testData = testData %>%
