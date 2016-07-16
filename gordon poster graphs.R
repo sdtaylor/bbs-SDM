@@ -1,5 +1,7 @@
 library(dplyr)
 library(ggplot2)
+library(tidyr)
+
 
 #Graphs for gordon conference 2016. Uses the fraction skill score. 
 ##############################################################
@@ -89,7 +91,6 @@ ggplot(results_this_sp, aes(x=time_lag, y=skill, colour=modelName, group=modelNa
 
 
 #############################################################
-library(tidyr)
 #Histogram of slopes of the skill trends over time
 trend_lines = results %>%
   group_by(Aou, modelName, temporal_scale, cellSize, windowID) %>%
@@ -104,51 +105,6 @@ trend_lines = results %>%
   dplyr::select(-model) %>%
   ungroup() %>%
   filter(!is.na(slope))
-
-#Extrapolatin of trend into future
-future_skill = trend_lines %>%
-  mutate(skill_at_80yrs=slope*150+ intercept) %>%
-  mutate(skill_at_80yrs=ifelse(skill_at_80yrs<0, 0, ifelse(skill_at_80yrs>1,1, skill_at_80yrs)))
-
-
-ggplot(future_skill, aes(x=cellSize, y=skill_at_80yrs, group=as.factor(temporal_scale), color=as.factor(temporal_scale))) +
-  #geom_point()+
-  geom_smooth(se=T, alpha=0.2, method='loess', size=3) +
-  scale_colour_manual(values=c('#E69F00','#009E73','#CC79A7')) +
-  theme_bw() +
-  facet_grid(.~modelName) + 
-  theme(legend.position = c(0.8, 0.20), 
-        legend.direction = "horizontal",
-        axis.title = element_text(size = 30), 
-        axis.text = element_text(size = 19),
-        legend.text = element_text(size = 22), 
-        legend.title = element_text(size = 20),
-        strip.text.x=element_text(size=20),
-        strip.text.y=element_text(size=20),
-        panel.grid.major = element_line(colour = "gray64"),
-        panel.grid.minor = element_line(colour = NA)
-  ) +
-  labs(x = "Spatial Scale (deg. lat/long)", 
-       y = "Fractions Skill Score", 
-       colour = "Temporal Scale (yrs)")  
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 ##Histograms of slopes
