@@ -28,10 +28,10 @@ results_summarized$cellSize = factor(results_summarized$cellSize, levels=c(0.1,1
 
 
 
-ggplot(results_summarized, aes(x=temporal_scale, y=skill, group=as.factor(cellSize), color=as.factor(cellSize))) +
+ggplot(results_summarized, aes(x=cellSize, y=skill, group=as.factor(temporal_scale), color=as.factor(temporal_scale))) +
   #geom_point()+
   geom_smooth(se=T, alpha=0.2, method='loess', size=3) +
-  scale_x_continuous(breaks=c(1,5,10))+
+  #scale_x_continuous(breaks=c(1,5,10))+
   scale_colour_manual(values=c('#E69F00','#009E73','#CC79A7')) +
   theme_bw() +
   facet_grid(.~modelName) + 
@@ -46,10 +46,96 @@ ggplot(results_summarized, aes(x=temporal_scale, y=skill, group=as.factor(cellSi
         panel.grid.major = element_line(colour = "gray64"),
         panel.grid.minor = element_line(colour = NA)
   ) +
-  labs(colour = "Spatial Scale (deg. lat/long)", 
+  labs(x = "Spatial Scale (deg. lat/long)", 
        y = "Fractions Skill Score", 
-       x = "Temporal Scale (yrs)")  
+       colour = "Temporal Scale (yrs)")  
 
+##############################################################
+#Different plot 1 try 1, two graphs for spatial and temporal, two lines each for each model
+
+results_summarized_temporal =results %>%
+  group_by(temporal_scale,windowID, modelName) %>%
+  summarize(skill=mean(fss), skill_sd=sd(fss)) %>%
+  ungroup() %>%
+  mutate(time_lag=(temporal_scale * windowID) - (temporal_scale/2)) %>%
+  left_join(lags_to_keep, by=c('temporal_scale','time_lag'))  %>%
+  filter(keep=='yes')  
+
+ggplot(results_summarized_temporal, aes(x=temporal_scale, y=skill, group=modelName, color=modelName)) +
+  #geom_point()+
+  geom_smooth(se=T, alpha=0.2, method='loess', size=3) +
+  scale_x_continuous(breaks=c(1,5,10))+
+  scale_colour_manual(values=c('#0072B2','#E69F00')) +
+  theme_bw() 
+
+
+results_summarized_spatial =results %>%
+  group_by(cellSize, temporal_scale, windowID, modelName) %>%
+  summarize(skill=mean(fss), skill_sd=sd(fss)) %>%
+  ungroup() %>%
+  #mutate(time_lag=(temporal_scale * windowID) - (temporal_scale/2)) %>%
+  left_join(lags_to_keep, by=c('temporal_scale','time_lag'))  %>%
+  filter(keep=='yes')  
+
+ggplot(results_summarized_spatial, aes(x=cellSize, y=skill, group=modelName, color=modelName)) +
+  #geom_point()+
+  geom_smooth(se=T, alpha=0.2, method='loess', size=3) +
+  scale_x_continuous(breaks=c(0.1, 1, 2))+
+  scale_colour_manual(values=c('#0072B2','#E69F00')) +
+  theme_bw() 
+##############################################################
+#Different plot 1 try 2, mean FSS over all scales
+  
+results_summarized =results %>%
+  filter(temporal_scale %in% c(5,10), cellSize %in% c(0.1, 1)) %>%
+    group_by(temporal_scale, cellSize, windowID, modelName) %>%
+    summarize(skill=mean(fss), skill_sd=sd(fss)) %>%
+    ungroup() %>%
+    mutate(time_lag=(temporal_scale * windowID) - (temporal_scale/2)) %>%
+    left_join(lags_to_keep, by=c('temporal_scale','time_lag'))  
+  
+
+ggplot(results_summarized, aes(x=time_lag, y=skill, colour=modelName, group=modelName)) +
+  #geom_point(size=5) +
+  geom_line(size=1.5) +
+  #geom_ribbon(aes(ymax=skill+skill_sd, ymin=skill-skill_sd), alpha=0.2)+
+  #geom_smooth(method='lm', se=FALSE, linetype='solid', size=1.8, aes(group=modelName)) +
+  #geom_smooth(method='loess')+
+  scale_colour_manual(values=c('#0072B2','#E69F00')) +
+  #geom_hline(yintercept = 0.75) +
+  theme_bw() +
+  facet_grid(cellSize~temporal_scale, labeller = label_value)
+
+
+results_summarized$modelName = factor(results_summarized$modelName, levels=c('gbm','naive'), labels = c('Gradient Boosting Model','Naive Model'), ordered = TRUE)
+#results_summarized$cellSize = factor(results_summarized$cellSize, levels=c(0.1,1.0,2.0), labels = c('0.1°','1.0°','2.0°'), ordered = TRUE)
+
+
+ggplot(results_summarized, aes(as.factor(cellSize), as.factor(temporal_scale), fill=skill, label=paste(round(skill, 2), round(skill_sd, 2), sep=' ±'))) +
+    geom_raster() +
+    scale_fill_gradient(low='red') + 
+    geom_text(size=11) +
+    facet_grid(.~modelName) +
+  theme_bw()+
+theme(axis.title = element_text(size = 30), 
+      axis.text = element_text(size = 20),
+      legend.text = element_text(size = 12), 
+      legend.title = element_text(size = 20),
+      strip.text.x=element_text(size=22),
+      strip.text.y=element_text(size=22),
+      panel.grid.major = element_line(colour = NA),
+      panel.grid.minor = element_line(colour = NA),
+      legend.position = "bottom", 
+      legend.direction = "horizontal"
+      )+
+  labs(x = "Spatial Scale (deg. lat/long)", 
+       y = "Temporal Scale (yrs)",
+       fill = "Fractions Skill Score          ")
+
+
+    ggtitle(paste(sp_name, this_model, sep=' - '))
+  
+  
 ##############################################################
 #Single species graph over time and scales
 

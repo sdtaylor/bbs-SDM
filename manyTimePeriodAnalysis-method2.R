@@ -27,6 +27,9 @@ source('config.R')
 #results=tbl(database, 'modelResults')
 results=read.csv('results/bbsSDMResults.csv')
 
+
+
+
 #############################################
 
 brier=function(obs, pred, reliability=FALSE, bins=c(0.2,0.5,0.7)){
@@ -140,8 +143,7 @@ for(this_sp in unique(results$Aou)){
 #######################################################3
 #fractional skill score graph with time lags
 
-focal_spp=c(5840, #swamp sparrow. no shift
-            7350, #Black capped chickadee. no shift
+focal_spp=c(7350, #Black capped chickadee. no shift
             3100, #wild turkey. northern shift (only in La Sorte & Thompson 2007 )
             6100, #Summer Tanager. northern shift
             7190, #bewicks wren. southern shift 
@@ -151,10 +153,10 @@ focal_spp=c(5840, #swamp sparrow. no shift
 
 sppNames=read.csv('~/data/bbs/BBS_species.csv') %>%
   rename(name=english_common_name, Aou=AOU) %>% 
-  filter(Aou %in% focal_spp) %>%
+  #filter(Aou %in% focal_spp) %>%
   dplyr::select(name, Aou)
 
-results=read.csv('results/bbsSDMResults_with_timelags.csv') %>%
+results=read.csv('results/bbsSDMResults_with_timelags_all.csv') %>%
   filter(!is.na(Aou))
 
 
@@ -176,10 +178,9 @@ ggplot(results_summarized, aes(x=time_lag, y=skill, color=name, group=name)) +
   facet_grid(cellSize~temporal_scale, labeller=label_both)
 
 
-
 ##Iterate over each spp
 
-for(this_sp in focal_spp){
+for(this_sp in unique(results$Aou)[50:80]){
   #for(this_model in c('gbm','naive')){
     #results_this_sp=results %>%
     #  filter(Aou==this_sp) %>%
@@ -190,39 +191,42 @@ for(this_sp in focal_spp){
     #  ungroup()
     results_this_sp =results %>%
       filter(Aou==this_sp,temporal_scale %in% c(5,10), cellSize %in% c(0.1, 1)) %>%
+      #filter(Aou==this_sp) %>%
       group_by(temporal_scale, cellSize, windowID, modelName) %>%
       summarize(skill=mean(fss), skill_sd=sd(fss)) %>%
       ungroup() %>%
-      mutate(time_lag=(temporal_scale * windowID) - (temporal_scale/2))# %>%
-      #mutate(temporal_scale=paste('Temporal Scale: ',temporal_scale,'yrs.',sep=''), cellSize=paste('Spatial Scale: ',cellSize,'°',sep=''))
+      mutate(time_lag=(temporal_scale * windowID) - (temporal_scale/2))
 
     
-    results_this_sp$temporal_scale = factor(results_this_sp$temporal_scale, levels=c(1,3,5,10), labels = c('Temporal Scale: 1 yrs','Temporal Scale: 3yrs','Temporal Scale: 5yrs','Temporal Scale: 10yrs'), ordered = TRUE)
-    results_this_sp$cellSize = factor(results_this_sp$cellSize, levels=c(0.1,1.0,2.0), labels = c('Spatial Scale: 0.1°','Spatial Scale: 1.0°','Spatial Scale: 2.0°'), ordered = TRUE)
+    results_this_sp$temporal_scale = factor(results_this_sp$temporal_scale, levels=c(5,10), labels = c('Temporal Scale: 5yrs','Temporal Scale: 10yrs'), ordered = TRUE)
+    results_this_sp$cellSize = factor(results_this_sp$cellSize, levels=c(0.1,1.0), labels = c('Spatial Scale: 0.1°','Spatial Scale: 1.0°'), ordered = TRUE)
     
     sp_name=sppNames %>%
       dplyr::filter(Aou==this_sp) %>%
       extract2('name')
     
     this_sp_plot=ggplot(results_this_sp, aes(x=time_lag, y=skill, colour=modelName, group=modelName)) +
-      geom_point(size=1) +
-      geom_line(linetype='dotted') +
-      geom_smooth(method='lm', se=FALSE, linetype='solid', size=0.9, aes(group=modelName)) +
-      geom_hline(yintercept = 0.75) +
+      geom_point(size=3) +
+      geom_line(linetype='dotted', size=2) +
+      geom_smooth(method='lm', se=FALSE, linetype='solid', size=1.3, aes(group=modelName)) +
+      scale_colour_manual(values=c('#0072B2','#E69F00')) +
+      #geom_hline(yintercept = 0.75) +
       theme_bw() +
       facet_grid(cellSize~temporal_scale, labeller = label_value) +
-      ggtitle(sp_name) + theme(panel.grid.major = element_line(linetype = "blank"), 
-    panel.grid.minor = element_line(linetype = "blank"), 
-    axis.title = element_text(size = 15), 
-    axis.text = element_text(size = 11), 
-    plot.title = element_text(size = 21), 
-    legend.text = element_text(size = 20), 
-    legend.key = element_rect(fill = "white"), 
-    legend.background = element_rect(fill = "white"), 
-    strip.text.x=element_text(size=15),
-    strip.text.y=element_text(size=15),
-    legend.position = "bottom", legend.direction = "horizontal") +labs(x = "Years Into Future", 
-    y = "Fraction Skill Score", colour = NULL) + theme(axis.text = element_text(size = 12))
+      ggtitle(sp_name) + 
+      theme(panel.grid.major = element_line(linetype = "blank"), 
+        panel.grid.minor = element_line(linetype = "blank"), 
+        axis.title = element_text(size = 30), 
+        axis.text = element_text(size = 20), 
+        plot.title = element_text(size = 21), 
+        legend.text = element_text(size = 23), 
+        legend.key = element_rect(fill = "white"), 
+        legend.background = element_rect(fill = "white"), 
+        strip.text.x=element_text(size=22),
+        strip.text.y=element_text(size=22),
+        legend.position = "bottom", legend.direction = "horizontal") +labs(x = "Years Into Future", 
+        y = "Fractions Skill Score", colour = NULL) + 
+      theme(axis.text = element_text(size = 12))
     print(this_sp_plot)
   #}
 }
