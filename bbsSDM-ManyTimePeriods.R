@@ -35,7 +35,7 @@ if(is.na(args[1])){
   dataFolder='/scratch/lfs/shawntaylor/data/bbs/'
   #dataFolder='/ufrc/ewhite/shawntaylor/data/bbs/'
   numProcs=32
-  resultsFile='./results/bbsSDMResults_with_timelags_prob_response.csv'
+  resultsFile='./results/bbsSDMResults_with_timelags.csv'
   rawResultsFile='/scratch/lfs/shawntaylor/data/bbs/bbsSDMResults_ManyTimePeriods_Raw.csv'
   
 }
@@ -370,7 +370,9 @@ focal_spp=c(5840, #swamp sparrow. no shift
             5170 #Purple finch. no shift
 )
 
-parallel_process_iteration=expand.grid(Aou=focal_spp, setID=unique(modelSetMatrix$setID))
+focal_spp=sample(unique(occData$Aou), 50)
+
+parallel_process_iteration=expand.grid(Aou=unique(occData$Aou), setID=unique(modelSetMatrix$setID))
 
 #finalDF=foreach(thisSpp=unique(occData$Aou)[1:3], .combine=rbind, .packages=c('dplyr','tidyr','magrittr','DBI')) %do% {
 #finalDF=foreach(thisSpp=unique(occData$Aou)[1:2], .combine=rbind, .packages=c('dplyr','tidyr','magrittr','DBI','RPostgreSQL')) %dopar% {
@@ -393,13 +395,13 @@ finalDF=foreach(i=1:nrow(parallel_process_iteration), .combine=rbind, .packages=
     
     #Only use species that have >20 sites with at least 1 occurance
     #in the training period
-    if( thisSppData %>%
-            filter(windowID==1, presence==1) %>%
-            dplyr::select(cellID) %>%
-            distinct() %>%
-            nrow() < 20 ) { 
-      print('Skipping, too few occurances')
-      return(NA) }
+    #if( thisSppData %>%
+    #        filter(windowID==1, presence==1) %>%
+    #        dplyr::select(cellID) %>%
+    #        distinct() %>%
+    #        nrow() < 20 ) { 
+    #  print('Skipping, too few occurances')
+    #  return(NA) }
     
     #Most models need presence/absence treated as factors.
     #thisSppData$presence = as.numeric(thisSppData$presence)
