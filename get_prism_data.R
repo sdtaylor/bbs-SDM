@@ -140,7 +140,7 @@ get_prism_data=function(){
   #Query sqlite database for the prism_bbs_data table. If it exists, return it.
   #Otherwise create it from the raw prism data.
   if('prism_bbs_data' %in% src_tbls(database)){
-    return(collect(tbl(database, sql('SELECT * from prism_bbs_data'))))
+    return(collect(tbl(database, sql('SELECT * from prism_bbs_data')),n=Inf))
   } else { 
     
     print('PRISM data table not found, processing raw data')
@@ -296,7 +296,7 @@ get_spatial_grid_info=function(){
   #Query sqlite database for thetable. If it exists, return it.
   #Otherwise throw an error
   if('spatial_grid_info' %in% src_tbls(database)){
-    return(collect(tbl(database, sql('SELECT * from spatial_grid_info'))))
+    return(collect(tbl(database, sql('SELECT * from spatial_grid_info')), n=Inf))
   } else { 
     stop("Can't find table spatial_grid_info")
   } 
@@ -315,7 +315,7 @@ get_bioclim_data=function(){
   #Query sqlite database for the bioclim_bbs_data table. If it exists, return it.
   #Otherwise create it from the raw prism data.
   if('bioclim_bbs_data' %in% src_tbls(database)){
-    return(collect(tbl(database, sql('SELECT * from bioclim_bbs_data'))))
+    return(collect(tbl(database, sql('SELECT * from bioclim_bbs_data')), n=Inf))
   } else { 
     print("bioclim data table not found, processing from scratch. ")
     bioclim_bbs_data=process_bioclim_data()
