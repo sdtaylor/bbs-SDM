@@ -309,7 +309,8 @@ updateResults=function(results){
   source('databaseConfig.R')
   database=src_postgres(dbname = dbName, host = dbHost, user = dbUser, password = dbPw)
   rm(dbName, dbHost, dbUser, dbPw)
-  dbWriteTable(conn=database$con, name='modelResults', value=as.data.frame(results), append=TRUE, row.names=FALSE)
+  db_insert_into(con=database$con, table='modelResults', values=modelResults)
+  #dbWriteTable(conn=database$con, name='modelResults', value=as.data.frame(results), append=TRUE, row.names=FALSE)
   dbDisconnect(database$con)
 }
 
@@ -319,17 +320,17 @@ updateResults=function(results){
 ####################################################################
 #Whether to write results to the postgres DB or keep in a local DF.
 #Keeping it in a local DF is used for testing on a small number of species. 
-writeToDB=FALSE
+writeToDB=TRUE
 
-focal_spp=c(7360, #Carolina chickadee
-            6010, #painted bunting
-            3100, #wild turky
-            4100 #Golden-fronted Woodpecker
-)
+#focal_spp=c(7360, #Carolina chickadee
+#           6010, #painted bunting
+#            3100, #wild turky
+#            4100 #Golden-fronted Woodpecker
+#)
 
 #finalDF=foreach(thisSpp=unique(occData$Aou)[1:3], .combine=rbind, .packages=c('dplyr','tidyr','magrittr','DBI')) %do% {
-#finalDF=foreach(thisSpp=unique(occData$Aou)[1:2], .combine=rbind, .packages=c('dplyr','tidyr','magrittr','DBI','RPostgreSQL')) %dopar% {
-finalDF=foreach(thisSpp=focal_spp, .combine=rbind, .packages=c('dplyr','tidyr','magrittr','DBI','RPostgreSQL')) %dopar% {
+finalDF=foreach(thisSpp=unique(occData$Aou)[1:2], .combine=rbind, .packages=c('dplyr','tidyr','magrittr','DBI','RPostgreSQL')) %dopar% {
+#finalDF=foreach(thisSpp=focal_spp, .combine=rbind, .packages=c('dplyr','tidyr','magrittr','DBI','RPostgreSQL')) %dopar% {
   thisSppResults=data.frame()
   for(thisSetID in modelSetMatrix$setID){
     this_spatial_scale=modelSetMatrix %>% filter(setID==thisSetID) %>% extract2('spatial_scale')
