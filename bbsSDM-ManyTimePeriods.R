@@ -374,9 +374,10 @@ finalDF=foreach(thisSpp=unique(occData$Aou)[1:2], .combine=rbind, .packages=c('d
     
     #Iterate thru all the models. They are trained on T1 and tested/validated on T2-Tn. Results are returned for *all* timeperiods.
     for(thisModel in modelsToUse){
-      predictions=sdmModels(data=thisSppData, modelName=thisModel, modelFormula=modelFormula)
-      #colnames(predictions)=c(paste(thisModel,'prob',sep='-'))
       
+      predictions=try(sdmModels(data=thisSppData, modelName=thisModel, modelFormula=modelFormula))
+      if(class(predictions)=='try-error'){return(data.frame())}
+
       modelResultsTemplate$modelName=thisModel
       modelResultsTemplate$prediction=predictions
       
