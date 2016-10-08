@@ -34,7 +34,7 @@ if(is.na(args[1])){
   print('Running on hipergator')
   #dataFolder='/scratch/lfs/shawntaylor/data/bbs/'
   dataFolder='/ufrc/ewhite/shawntaylor/data/bbs/'
-  numProcs=32
+  numProcs=16
   resultsFile='./results/bbsSDMResults.csv'
   rawResultsFile='/scratch/lfs/shawntaylor/data/bbs/bbsSDMResults_ManyTimePeriods_Raw.csv'
   
@@ -329,7 +329,7 @@ writeToDB=TRUE
 #)
 
 #finalDF=foreach(thisSpp=unique(occData$Aou)[1:3], .combine=rbind, .packages=c('dplyr','tidyr','magrittr','DBI')) %do% {
-finalDF=foreach(thisSpp=unique(occData$Aou)[1:2], .combine=rbind, .packages=c('dplyr','tidyr','magrittr','DBI','RPostgreSQL')) %dopar% {
+finalDF=foreach(thisSpp=unique(occData$Aou), .combine=rbind, .packages=c('dplyr','tidyr','magrittr','DBI','RPostgreSQL')) %dopar% {
 #finalDF=foreach(thisSpp=focal_spp, .combine=rbind, .packages=c('dplyr','tidyr','magrittr','DBI','RPostgreSQL')) %dopar% {
   thisSppResults=data.frame()
   for(thisSetID in modelSetMatrix$setID){
@@ -373,16 +373,18 @@ finalDF=foreach(thisSpp=unique(occData$Aou)[1:2], .combine=rbind, .packages=c('d
     source('bbsSDMModels-ManyTimePeriods.R')
     
     #Iterate thru all the models. They are trained on T1 and tested/validated on T2-Tn. Results are returned for *all* timeperiods.
+    #Don't record stuff that cause model errrors
     for(thisModel in modelsToUse){
       
       predictions=try(sdmModels(data=thisSppData, modelName=thisModel, modelFormula=modelFormula))
-      if(class(predictions)=='try-error'){return(data.frame())}
+      if(class(predictions)!='try-error'){
 
-      modelResultsTemplate$modelName=thisModel
-      modelResultsTemplate$prediction=predictions
-      
-      modelResults=modelResults %>%
-        bind_rows(modelResultsTemplate)
+        modelResultsTemplate$modelName=thisModel
+        modelResultsTemplate$prediction=predictions
+        
+        modelResults=modelResults %>%
+          bind_rows(modelResultsTemplate)
+      }
     }
     
     #Setup a results dataframe for TV validation plot accuracy. 
