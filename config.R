@@ -6,6 +6,9 @@ rm(dbName, dbHost, dbUser, dbPw)
 #Years in the data to consider.
 timeRange=c(1971:2014)
 
+#bioclim data folder. Used to store yearly rasters of bioclim vars made from prism data
+bioclim_data_folder='~/data/yearly_bioclim/'
+
 #Window sizes to use. This is the temporal scale
 #windowSizes=c(1,2,3,4,5,6,7,8,9,10,11,12,13,14)
 temporal_scales=c(1,3,5,10)

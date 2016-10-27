@@ -1,7 +1,8 @@
 library(prism)
 library(raster)
 library(magrittr)
-
+library(dplyr)
+source('config.R')
 options(prism.path = "~/data/prismdata")
 
 ########################################################
@@ -32,7 +33,7 @@ max_min_combo=function(vec1,vec2,max=TRUE){
 ########################################################
 #Create raster stack of 19 bioclim vars from monthly prism data
 #Function used in raster::overlay() which accepts
-create_bioclim_stack = function(prism_year_stacked){
+make_bioclim_from_prism = function(prism_year_stacked, year){
   
   df=as.data.frame(prism_year_stacked) 
   df$cell_id = 1:nrow(df)
@@ -80,10 +81,36 @@ create_bioclim_stack = function(prism_year_stacked){
     dplyr::full_join(bioclim_quarter_data, by=c('cell_id'))
   
      
+  
+  template_raster=raster::raster(nrows = prism_year_stacked@nrows, ncols = prism_year_stacked@ncols, 
+                            crs = prism_year_stacked@crs, ext = prism_year_stacked@extent)
+  
+  bioclim_names = paste('bio',1:19, sep = '')
+  for(this_bioclim_var in bioclim_names){
+    raster_obj = raster::setValues(template_raster, magrittr::extract2(bioclim_data, this_bioclim_var))
+    raster_filename=paste0(bioclim_data_folder,this_bioclim_var,'_',year,'.tif')
+    writeRaster(raster_obj, raster_filename, formate='GTiff')
+  }
+
 }
 
 
 
 ########################################################
-#
+#Iterate over all the  years
 ###
+convert_prism_to_raster=function(){
+  for(this_year in timeRange){
+    this_year_files = ls_prism_data() %>% 
+      dplyr::filter(grepl(as.character(this_year),files))
+
+    this_year_stack = prism_stack(this_year_files)
+  
+    make_bioclim_from_prism(this_year_stack, this_year)
+      
+    
+  }
+}
+
+
+convert_prism_to_raster()
