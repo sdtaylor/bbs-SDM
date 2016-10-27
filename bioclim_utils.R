@@ -5,6 +5,8 @@ library(dplyr)
 source('config.R')
 options(prism.path = "~/data/prismdata")
 
+#TODO: put in download functionality to make this stand alone
+
 ########################################################
 #Download prism data if not already there
 ###
