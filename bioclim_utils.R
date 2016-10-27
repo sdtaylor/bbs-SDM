@@ -2,6 +2,7 @@ library(prism)
 library(raster)
 library(magrittr)
 library(dplyr)
+library(sp)
 source('config.R')
 options(prism.path = "~/data/prismdata")
 
@@ -99,7 +100,7 @@ make_bioclim_from_prism = function(prism_year_stacked, year){
 
 
 ########################################################
-#Iterate over all the  years
+#Convert all availableyears of prism data to bioclim vars
 ###
 convert_prism_to_raster=function(){
   for(this_year in timeRange){
@@ -115,4 +116,34 @@ convert_prism_to_raster=function(){
 }
 
 
-convert_prism_to_raster()
+###################################################################
+#Extract bioclim data for all routes in the training years.
+#Used for initial model fit
+####################################################################
+get_train_bioclim_data=function(){
+  routes=read.csv(paste(dataFolder, 'BBS_routes.csv', sep='')) %>%
+    dplyr::mutate(siteID=paste(countrynum, statenum, route,sep='-')) %>%
+    dplyr::select(siteID, long=loni, lat=lati)
+  
+  routes = SpatialPointsDataFrame(cbind(routes$long, routes$lat), data=routes, 
+                                  proj4string = CRS('+proj=longlat +datum=NAD83 +no_defs +ellps=GRS80 +towgs84=0,0,0'))
+  
+  train_years_search_pattern =paste0(training_years, '|', collapse='')
+  train_years_search_pattern = substr(train_years_search_pattern, 1, nchar(train_years_search_pattern)-1)
+  bioclim_train_files = list.files(bioclim_data_folder, pattern=train_years_search_pattern, full.names = TRUE)
+  
+  bioclim_train_files =  bioclim_train_files[!grepl('xml', bioclim_train_files)]
+  
+  bioclim_train_stack=raster::stack(bioclim_train_files)
+  
+  route_data = as.data.frame(raster::extract(bioclim_train_stack, routes))
+  
+  route_data$siteID = routes$siteID
+  
+  route_data = route_data %>%
+    tidyr::gather(var_year, value, -siteID) %>%
+    tidyr::separate(var_year, c('var','year'), '_') %>%
+    tidyr::spread(var, value)
+            
+  return(route_data)       
+}
