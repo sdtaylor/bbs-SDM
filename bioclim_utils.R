@@ -142,7 +142,7 @@ get_train_bioclim_data=function(){
   
   route_data = route_data %>%
     tidyr::gather(var_year, value, -siteID) %>%
-    tidyr::separate(var_year, c('var','year'), '_') %>%
+    tidyr::separate(var_year, c('var','year'), '_', convert = TRUE) %>%
     tidyr::spread(var, value)
             
   return(route_data)       
