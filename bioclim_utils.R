@@ -115,6 +115,38 @@ convert_prism_to_raster=function(){
   }
 }
 
+#######################################################
+#Apply model to bioclim verification data and return result as a raster stack
+#######################################################
+
+#A list of RasterStacks, one RasterStack of bioclim vars for every year. Labels
+#renamed so it can be used inside raster::predict()
+bioclim_test_data=list()
+for(test_year in testing_years){
+  bioclim_test_files = list.files(bioclim_data_folder, pattern=as.character(test_year), full.names = TRUE)
+  bioclim_test_files =  bioclim_test_files[!grepl('xml', bioclim_test_files)]
+    
+  test_year_stack=raster::stack(bioclim_test_files)
+  
+  for(layer_num in 1:length(test_year_stack@layers)){
+    layer_name = test_year_stack[[layer_num]]@data@names
+    layer_name = stringr::word(layer_name, 1, 1, sep='_')
+    test_year_stack[[layer_num]]@data@names = layer_name
+  }
+  
+  bioclim_test_data = append(bioclim_test_data, test_year_stack)
+}
+
+
+#Generic function to take a distribution model output and make probability maps
+#using the above data.
+apply_model_to_bioclim = function(m){
+  predictions_stack = raster::stack()
+  for(test_year in seq_along(testing_years)){
+    predict(m, bioclim_test_data)
+  }
+  
+}
 
 ###################################################################
 #Extract bioclim data for all routes in the training years.
