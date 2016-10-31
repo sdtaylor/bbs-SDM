@@ -137,15 +137,16 @@ for(test_year in testing_years){
   bioclim_test_data = append(bioclim_test_data, test_year_stack)
 }
 
-
-#Generic function to take a distribution model output and make probability maps
-#using the above data.
+#Take a distribution model output and make probability maps
+#of all testing years, returned in a raster stack. 
 apply_model_to_bioclim = function(m){
   predictions_stack = raster::stack()
-  for(test_year in seq_along(testing_years)){
-    predict(m, bioclim_test_data)
+  for(i in seq_along(testing_years)){
+    predictions_stack=stack(predictions_stack, predict(bioclim_test_data[[i]], m, type='response'))
+    predictions_stack[[i]]@data@names=as.character(testing_years[i])
   }
   
+  return(predictions_stack)
 }
 
 ###################################################################
