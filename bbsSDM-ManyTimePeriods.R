@@ -209,7 +209,7 @@ registerDoParallel(cl)
 #)
 
 #finalDF=foreach(thisSpp=unique(occData$Aou)[1:3], .combine=rbind, .packages=c('dplyr','tidyr','magrittr','DBI')) %do% {
-finalDF=foreach(thisSpp=unique(occData$Aou)[1:50], .combine=rbind, .packages=c('dplyr','tidyr')) %dopar% {
+finalDF=foreach(thisSpp=unique(occData$Aou), .combine=rbind, .packages=c('dplyr','tidyr')) %dopar% {
 #finalDF=foreach(thisSpp=focal_spp, .combine=rbind, .packages=c('dplyr','tidyr','magrittr','DBI','RPostgreSQL')) %dopar% {
   this_spp_results=data.frame()
   
@@ -244,10 +244,10 @@ finalDF=foreach(thisSpp=unique(occData$Aou)[1:50], .combine=rbind, .packages=c('
         summarize(presence = max(presence), prediction = 1-(prod(1-prediction)))
       
       
-      fss=fractions_skill_score(scaled_prediction$presence, scaled_prediction$prediction)
-      
+      score=fractions_skill_score(scaled_prediction$presence, scaled_prediction$prediction)
+
       this_spp_results = this_spp_results %>%
-        dplyr::bind_rows(data.frame(Aou=thisSpp, spatial_scale=this_spatial_scale, temporal_scale=this_temporal_scale, fss=fss))
+        dplyr::bind_rows(data.frame(Aou=thisSpp, spatial_scale=this_spatial_scale, temporal_scale=this_temporal_scale, score=score))
 
     }
   }
@@ -255,3 +255,7 @@ finalDF=foreach(thisSpp=unique(occData$Aou)[1:50], .combine=rbind, .packages=c('
   return(this_spp_results)
  
 }
+
+write.csv(finalDF, resultsFile, row.names = FALSE)
+
+
