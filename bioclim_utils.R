@@ -119,8 +119,8 @@ convert_prism_to_raster=function(){
 #Apply model to bioclim verification data and return result as a raster stack
 #######################################################
 
-#A list of RasterStacks, one RasterStack of bioclim vars for every year. Labels
-#renamed so it can be used inside raster::predict()
+#Make a list of RasterStacks of all the testing data. One rasterstack is all the bioclim vars
+#for that year. Labels reflect the name so it can be used inside raster::predict()
 bioclim_test_data=list()
 for(test_year in testing_years){
   bioclim_test_files = list.files(bioclim_data_folder, pattern=as.character(test_year), full.names = TRUE)
@@ -153,7 +153,7 @@ apply_model_to_bioclim = function(m){
 #Extract bioclim data for all routes in the training years.
 #Used for initial model fit
 ####################################################################
-get_train_bioclim_data=function(){
+get_bioclim_data=function(){
   routes=read.csv(paste(dataFolder, 'BBS_routes.csv', sep='')) %>%
     dplyr::mutate(siteID=paste(countrynum, statenum, route,sep='-')) %>%
     dplyr::select(siteID, long=loni, lat=lati)
@@ -161,18 +161,23 @@ get_train_bioclim_data=function(){
   routes = SpatialPointsDataFrame(cbind(routes$long, routes$lat), data=routes, 
                                   proj4string = CRS('+proj=longlat +datum=NAD83 +no_defs +ellps=GRS80 +towgs84=0,0,0'))
   
-  train_years_search_pattern =paste0(training_years, '|', collapse='')
-  train_years_search_pattern = substr(train_years_search_pattern, 1, nchar(train_years_search_pattern)-1)
-  bioclim_train_files = list.files(bioclim_data_folder, pattern=train_years_search_pattern, full.names = TRUE)
+  #Create a regex expression to use only bioclim data from the years being trained and tested on. 
+  #Saves on processing time
+  relevant_years = paste0(c(training_years, testing_years), '|', collapse='')
+  relevant_years = substr(relevant_years, 1, nchar(relevant_years)-1)
+  bioclim_files = list.files(bioclim_data_folder, pattern=relevant_years, full.names = TRUE)
   
-  bioclim_train_files =  bioclim_train_files[!grepl('xml', bioclim_train_files)]
+  #Filter out any xml files that sneak in there. 
+  bioclim_files =  bioclim_files[!grepl('xml', bioclim_files)]
   
-  bioclim_train_stack=raster::stack(bioclim_train_files)
+  bioclim_stack=raster::stack(bioclim_files)
   
-  route_data = as.data.frame(raster::extract(bioclim_train_stack, routes))
+  route_data = as.data.frame(raster::extract(bioclim_stack, routes))
   
   route_data$siteID = routes$siteID
   
+  #Take raster names (bio12_1995, bio13_1995, etc) and convert year to a column and
+  #bioX values to individual columns
   route_data = route_data %>%
     tidyr::gather(var_year, value, -siteID) %>%
     tidyr::separate(var_year, c('var','year'), '_', convert = TRUE) %>%
