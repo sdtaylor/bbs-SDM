@@ -154,13 +154,6 @@ apply_model_to_bioclim = function(m){
 #Used for initial model fit
 ####################################################################
 get_bioclim_data=function(){
-  routes=read.csv(paste(dataFolder, 'BBS_routes.csv', sep='')) %>%
-    dplyr::mutate(siteID=paste(countrynum, statenum, route,sep='-')) %>%
-    dplyr::select(siteID, long=loni, lat=lati)
-  
-  routes = SpatialPointsDataFrame(cbind(routes$long, routes$lat), data=routes, 
-                                  proj4string = CRS('+proj=longlat +datum=NAD83 +no_defs +ellps=GRS80 +towgs84=0,0,0'))
-  
   #Create a regex expression to use only bioclim data from the years being trained and tested on. 
   #Saves on processing time
   relevant_years = paste0(c(training_years, testing_years), '|', collapse='')
@@ -172,9 +165,9 @@ get_bioclim_data=function(){
   
   bioclim_stack=raster::stack(bioclim_files)
   
-  route_data = as.data.frame(raster::extract(bioclim_stack, routes))
+  route_data = as.data.frame(raster::extract(bioclim_stack, routes_spatial))
   
-  route_data$siteID = routes$siteID
+  route_data$siteID = routes_spatial$siteID
   
   #Take raster names (bio12_1995, bio13_1995, etc) and convert year to a column and
   #bioX values to individual columns

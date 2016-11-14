@@ -14,9 +14,17 @@ bioclim_data_folder='~/data/yearly_bioclim/'
 temporal_scales=c(1,3,5,10)
 
 training_years=1971:1980
+testing_years=2000:2014
 
-#Spatial scale to use. These are width & height of grid cells in degrees. 
-spatial_cell_sizes=c(0.1, 0.25, 0.5, 1.0, 2.0)
+#Spatial scale to use. 
+#in Deg lat/long
+spatial_scales=c(0.1, 1.0, 2.0)
+#spatial_scales=c(0.1, 0.25, 0.5, 1.0, 2.0)
+#in km
+#spatial_scales=c(11,  28,   56,  111, 212)
+#in number of 4km grid cells
+#spatial_scales=c(3,    7,    14,  28,  53)
+
 
 #These are the offsets which scooch the analysis forward n years at a time to average out climatic variability
 #0 means no offset. 

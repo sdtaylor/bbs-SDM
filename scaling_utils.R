@@ -1,7 +1,7 @@
 
 #Take a raster stack of yearly predictions and increase the grain size
 #in both time and space.
-scale_up_predictions(p, spatial_scale, temporal_scale){
+scale_up_predictions = function(p, spatial_scale, temporal_scale){
   #Scaling up in space
   p = raster::stack(aggregate(p, fact=spatial_scale, fun=mean))
   
@@ -24,4 +24,45 @@ scale_up_predictions(p, spatial_scale, temporal_scale){
   }
 
   return(larger_temporal_scale)  
+}
+
+
+#######################################################
+#Create a continuous grid of a certain cell size across the extent of the template raster
+#######################################################
+templateRaster=raster('~/data/yearly_bioclim/bio1_1971.tif')
+create_grid=function(cellsize, templateRaster){
+  minX=bbox(templateRaster)[1,1]
+  maxX=bbox(templateRaster)[1,2]
+  minY=bbox(templateRaster)[2,1]
+  maxY=bbox(templateRaster)[2,2]
+  
+  lowerX=maxX-minX
+  lowerY=maxY-minY
+  
+  numCellsX=round((lowerX+1)/cellsize)
+  numCellsY=round((lowerY+1)/cellsize)
+  g=GridTopology(c(minX, minY), c(cellsize,cellsize), c(numCellsX, numCellsY))
+  g=SpatialGrid(g, proj4string = CRS(crs(templateRaster)@projargs))
+}
+
+#######################################################
+#Takes a grid cell and site spatial df.
+#Returns a df of colnames('cellID','siteID')
+#######################################################
+assign_sites_to_grid=function(g, sites){
+  g=as(g, 'SpatialPolygons')
+  if(!identicalCRS(g, sites)){
+    sites = spTransform(sites, CRSobj = crs(g))
+  }
+  x=data.frame(spatial_cell_id=over(sites, g), siteID=sites@data$siteID) %>%
+    filter(!is.na(spatial_cell_id))
+  return(x)
+}
+
+#Aggregate 
+scale_up = function(p, spatial_scale, temporal_scale){
+  spatial_grid = create_grid(spatial_scale, templateRaster)
+  
+  
 }
