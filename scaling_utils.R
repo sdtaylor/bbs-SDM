@@ -64,5 +64,33 @@ assign_sites_to_grid=function(g, sites){
 scale_up = function(p, spatial_scale, temporal_scale){
   spatial_grid = create_grid(spatial_scale, templateRaster)
   
-  
 }
+
+
+###############################################################
+#Scaling up a random number of points of probabilites is done
+#using a beta binomial distribution
+
+#Liklehood of a beta distribution
+beta_loglik <- function(mu, x) { 
+  sum(-dbeta(x,mu[1],mu[2],log = F)) 
+} 
+
+#Probability of at least 1 occurance given a vector of individual probabilites
+beta_binomial_est = function(p){
+  if(length(p) == 1){return(p)}
+  
+  optim_out = try(optim(par = c(1,1), fn=beta_loglik,x=p,method = "L-BFGS-B",lower=c(0,0)))
+  
+  if(class(optim_out) == 'try-error'){return(NA)}
+  
+  beta_dist_params = optim_out$par
+  
+  beta_expected = beta_dist_params[1] / sum(beta_dist_params)
+  beta_correlation = 1 / (sum(beta_dist_params)+1)
+  
+  prob_no_occurances = emdbook::dbetabinom(0, prob = beta_expected, size = length(p), theta = beta_correlation)
+  
+  return( 1 - prob_no_occurances)
+}
+
