@@ -3,7 +3,7 @@ library(tidyr)
 library(doParallel)
 library(magrittr)
 library(stringr)
-library(DBI)
+library(gbm)
 
 ####################################################################################
 #Adjustments based on where this script is being run.
@@ -209,7 +209,7 @@ registerDoParallel(cl)
 #)
 
 #finalDF=foreach(thisSpp=unique(occData$Aou)[1:3], .combine=rbind, .packages=c('dplyr','tidyr','magrittr','DBI')) %do% {
-finalDF=foreach(thisSpp=unique(occData$Aou), .combine=rbind, .packages=c('dplyr','tidyr')) %dopar% {
+finalDF=foreach(thisSpp=unique(occData$Aou[1:2]), .combine=rbind, .packages=c('dplyr','tidyr','gbm')) %dopar% {
 #finalDF=foreach(thisSpp=focal_spp, .combine=rbind, .packages=c('dplyr','tidyr','magrittr','DBI','RPostgreSQL')) %dopar% {
   this_spp_results=data.frame()
   
@@ -221,8 +221,10 @@ finalDF=foreach(thisSpp=unique(occData$Aou), .combine=rbind, .packages=c('dplyr'
     dplyr::left_join(thisSpp_occurances, by=c('siteID','year')) %>%
     dplyr::mutate(presence = ifelse(is.na(presence), 0, presence))
   
-  model=glm(modelFormula, family='binomial', data=thisSpp_data_training)
-  
+  model=gbm(modelFormula, n.trees=5000, distribution = 'bernoulli', interaction.depth = 4, shrinkage=0.001, 
+            data= thisSpp_data_training)
+  perf=gbm.perf(model, plot.it=FALSE)
+
   thisSpp_data_testing = bioclim_data_testing %>%
     dplyr::left_join(thisSpp_occurances, by=c('siteID','year')) %>%
     dplyr::mutate(presence = ifelse(is.na(presence), 0, presence))
@@ -230,8 +232,9 @@ finalDF=foreach(thisSpp=unique(occData$Aou), .combine=rbind, .packages=c('dplyr'
   predictions = thisSpp_data_testing %>%
     dplyr::select(siteID, year, presence) 
   
-  predictions$prediction = predict(model, thisSpp_data_testing, type='response')
+  predictions$prediction = predict(model, n.trees=perf, newdata=thisSpp_data_testing, type='response')
   
+  all=data.frame()
   
   for(this_temporal_scale in temporal_scales){
     for(this_spatial_scale in spatial_scales){
@@ -239,10 +242,15 @@ finalDF=foreach(thisSpp=unique(occData$Aou), .combine=rbind, .packages=c('dplyr'
       scaled_prediction = testing_cell_info %>%
         dplyr::filter(spatial_scale == this_spatial_scale, temporal_scale == this_temporal_scale) %>%
         dplyr::left_join(predictions, by=c('siteID','year')) %>%
-        dplyr::filter(!is.na(presence))%>%
+        dplyr::filter(!is.na(presence)) %>%
         group_by(spatial_cell_id, temporal_cell_id) %>%
-        summarize(presence = max(presence), prediction = 1-(prod(1-prediction)))
+        summarize(presence = max(presence), prediction = ifelse(n()==1, prediction, beta_binomial_est(prediction))) %>%
+        ungroup()
       
+      scaled_prediction$temporal_scale = this_temporal_scale
+      scaled_prediction$spatial_scale = this_spatial_scale
+      
+      all = all %>% bind_rows(scaled_prediction)
       
       score=fractions_skill_score(scaled_prediction$presence, scaled_prediction$prediction)
 

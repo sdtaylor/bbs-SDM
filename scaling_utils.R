@@ -73,14 +73,14 @@ scale_up = function(p, spatial_scale, temporal_scale){
 
 #Liklehood of a beta distribution
 beta_loglik <- function(mu, x) { 
-  sum(-dbeta(x,mu[1],mu[2],log = F)) 
+  sum(-dbeta(x,mu[1],mu[2],log = T)) 
 } 
 
-#Probability of at least 1 occurance given a vector of individual probabilites
+
 beta_binomial_est = function(p){
   if(length(p) == 1){return(p)}
   
-  optim_out = try(optim(par = c(1,1), fn=beta_loglik,x=p,method = "L-BFGS-B",lower=c(0,0)))
+  optim_out = try(optim(par = c(1,1), fn=beta_loglik,x=p,method = "L-BFGS-B", lower = c(0.00001,0.00001)))
   
   if(class(optim_out) == 'try-error'){return(NA)}
   
