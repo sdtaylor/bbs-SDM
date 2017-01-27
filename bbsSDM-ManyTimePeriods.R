@@ -44,9 +44,8 @@ if(is.na(args[1])){
 #Configuration
 ####################################################################
 source('config.R')
-source('bioclim_utils.R')
-source('scaling_utils.R')
-source('verifications.R')
+source('utils.R')
+
 #################################################################
 #Data loading and pre-processing
 ################################################################
@@ -65,7 +64,6 @@ routes_spatial = SpatialPointsDataFrame(cbind(routes$long, routes$lat), data=rou
                                 proj4string = CRS('+proj=longlat +datum=NAD83 +no_defs +ellps=GRS80 +towgs84=0,0,0'))
 
 #Some records are of genus only and "unidentified". Get rid of those.
-#TODO: Maybe find someway to incorperate them, because now some sites of false-negs. 
 unidSpp=species %>%
   dplyr::select(Aou=AOU, name=english_common_name) %>%
   mutate(unID=ifelse(str_sub(name, 1,5)=='unid.', 1,0)  ) %>%
@@ -74,10 +72,10 @@ unidSpp=species %>%
 
 #Filter weather to years of study so it can be used to calculate occData next.
 weather=weather %>%
-  filter(Year %in% timeRange)
+  filter(Year %in% c(testing_years, training_years))
 
 occData=counts %>%
-  filter(Year %in% timeRange) %>%
+  filter(Year %in% c(testing_years, training_years)) %>%
   mutate(siteID=paste(countrynum, statenum, Route,sep='-')) %>%
   dplyr::select(Aou, siteID,year=Year, RPID)
 
@@ -165,7 +163,7 @@ all_routes_surveyed = all_routes_surveyed %>%
 #Remove some NA values due to some temporal scales not dividing equally into number of testing years
 all_routes_surveyed = all_routes_surveyed[complete.cases(all_routes_surveyed),]
 
-#Restrict cells used in the testing data to ones that have a minimum number of sites within them.
+#Restrict upscaled cells in the verification to ones that have a minimum number of sites within them.
 #Minimum sites are the median number of sites for that spatial/temporal scale
 median_cell_counts = all_routes_surveyed %>%
   dplyr::filter(year %in% testing_years) %>%
@@ -176,6 +174,7 @@ median_cell_counts = all_routes_surveyed %>%
   dplyr::summarise(median_site_count = median(n)) %>%
   dplyr::ungroup()
 
+#this data.frame stores how the sites are aggregated within each spatiotemporal grain size. 
 testing_cell_info = all_routes_surveyed %>%
   dplyr::group_by(spatial_scale, temporal_scale, spatial_cell_id, temporal_cell_id) %>%
   dplyr::tally() %>%
@@ -209,7 +208,7 @@ registerDoParallel(cl)
 #)
 
 #finalDF=foreach(thisSpp=unique(occData$Aou)[1:3], .combine=rbind, .packages=c('dplyr','tidyr','magrittr','DBI')) %do% {
-finalDF=foreach(thisSpp=unique(occData$Aou[1:2]), .combine=rbind, .packages=c('dplyr','tidyr','gbm')) %dopar% {
+finalDF=foreach(thisSpp=unique(occData$Aou[1:5]), .combine=rbind, .packages=c('dplyr','tidyr','gbm')) %dopar% {
 #finalDF=foreach(thisSpp=focal_spp, .combine=rbind, .packages=c('dplyr','tidyr','magrittr','DBI','RPostgreSQL')) %dopar% {
   this_spp_results=data.frame()
   
@@ -244,7 +243,7 @@ finalDF=foreach(thisSpp=unique(occData$Aou[1:2]), .combine=rbind, .packages=c('d
         dplyr::left_join(predictions, by=c('siteID','year')) %>%
         dplyr::filter(!is.na(presence)) %>%
         group_by(spatial_cell_id, temporal_cell_id) %>%
-        summarize(presence = max(presence), prediction = ifelse(n()==1, prediction, beta_binomial_est(prediction))) %>%
+        summarize(presence = max(presence), prediction = ifelse(n()==1, prediction, 1-prod(1-prediction))) %>%
         ungroup()
       
       scaled_prediction$temporal_scale = this_temporal_scale
@@ -264,6 +263,7 @@ finalDF=foreach(thisSpp=unique(occData$Aou[1:2]), .combine=rbind, .packages=c('d
  
 }
 
+finalDF$dataset='bbs_method1'
 write.csv(finalDF, resultsFile, row.names = FALSE)
 
 
