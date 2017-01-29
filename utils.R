@@ -1,7 +1,11 @@
+library(sp)
+library(raster)
+library(dplyr)
+
 #######################################################
 #Create a continuous grid of a certain cell size across the extent of the template raster
 #######################################################
-templateRaster=raster('~/data/yearly_bioclim/bio1_1971.tif')
+templateRaster=raster::raster('~/data/yearly_bioclim/bio1_1971.tif')
 create_grid=function(cellsize, templateRaster){
   minX=bbox(templateRaster)[1,1]
   maxX=bbox(templateRaster)[1,2]
