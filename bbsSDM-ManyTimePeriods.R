@@ -99,11 +99,12 @@ bioclimData=get_bioclim_data()
 
 #Some sites have na bioclim values. Mostly canada sites and the occasional one on water. 
 bioclimData = bioclimData %>%
-  filter(!is.na(bio1))
+  filter(!is.na(value))
 
 
 #####################################################################
 # Define how years will be aggregated in all the temporal scales
+# Also define "sets", sets being each unique spatiotemporal grain size. 
 define_year_aggregations=function(year_list){
   model_sets=data.frame()
   set_id=1
@@ -169,42 +170,35 @@ site_id_cell_id=get_spatial_grid_info()
 #######################################################################
 #Filter sites based on coverage within a particular temporal_cell_id
 #calculate weather data for all those sites. 
-siteDataMatrix=data.frame()
+aggregated_bioclim_data=data.frame()
 
 for(this_set_id in unique(model_sets$set_id)){
-  #Get the yearly sets to use (ie. set1: 80-84, set2: 85-89, etc) and other info about this set
-  thisSetYears=model_sets %>% filter(set_id==this_set_id) 
-  #thisWindowSize=model_sets %>% filter(set_id==this_set_id) %>% extract2('windowSize')
-  this_spatial_scale=model_sets %>% filter(set_id==this_set_id) %>% extract2('spatial_scale')
-  this_temporal_scale=model_sets %>% filter(set_id==this_set_id) %>% extract2('temporal_scale')
-  thisSetYears=thisSetYears %>% dplyr::select(Year, temporal_cell_id)
+  #Get the yearly aggregations to use (ie. set1: 80-84, set2: 85-89, etc) and other info about this set
+  this_set_years=model_sets %>% filter(set_id==this_set_id) 
+  this_spatial_scale=unique(this_set_years$spatial_scale)
+  this_temporal_scale=unique(this_set_years$temporal_scale)
+  this_set_years=this_set_years %>% dplyr::select(Year, temporal_cell_id)
   
-  #Average all bioclim over this spatial scale. subset to sites
-  #with adequate temporal coverage. 
-  thisSetWeather=bioclimData %>%
-    filter(year %in% timeRange, cellSize==this_spatial_scale) %>%
+  #Temporal aggregation
+  this_set_bioclim=bioclimData %>%
+    filter(year %in% c(training_years, testing_years), spatial_scale==this_spatial_scale) %>%
     rename(Year=year) %>%
-    mutate(Year=as.factor(Year)) %>%
-    left_join(thisSetYears, by='Year') %>%
-    group_by(temporal_cell_id, cellID) %>%
-    summarize_each(funs(mean), -Year,-cellID, -cellSize) %>%
-    ungroup() %>%
-    filter(cellID %in% thisSetSiteInfo$cellID)
+    left_join(this_set_years, by='Year') %>%
+    group_by(temporal_cell_id, bioclim_var, spatial_cell_id) %>%
+    summarize(value=mean(value)) %>%
+    ungroup() 
+
+  this_set_bioclim$set_id=this_set_id
   
-  thisSetSiteInfo = thisSetSiteInfo %>%
-    left_join(thisSetWeather, by=c('temporal_cell_id','cellID')) %>%
-    filter(!is.na(bio1))
-  
-  thisSetSiteInfo$set_id=this_set_id
-  
-  siteDataMatrix = bind_rows(siteDataMatrix, thisSetSiteInfo)
+  aggregated_bioclim_data = bind_rows(aggregated_bioclim_data, this_set_bioclim)
   }
-rm(thisSetSiteInfo, thisSetWeather, thisSetYears, this_temporal_scale, dropSites, this_set_id, bioclimData)
+rm(this_set_years, this_temporal_scale, this_set_id, bioclimData)
 
 ###################################################################
 #BBS occurance data is for individual sites. Need to convert all those to presences
-#in cells at all the different spatial scales while also accounting for the different 
-#Temporal scales.
+#in cells at all the different spatial scales.
+#Doing the same thing for the different temporal scales will eat up 10's of GB of RAM,
+#so it's done on a species by species basis in process_sp_observations()
 occData=occData %>%
   left_join(site_id_cell_id, by='siteID') %>%
   dplyr::select(-siteID) %>%
@@ -215,9 +209,20 @@ occData=occData %>%
 #-Inserts absences; -splits years into specified window sizes (temporal_cell_id's);
 #
 ###################################################################
-processSpDataToWindowSize=function(spData, this_set_id){
+process_sp_observations=function(sp_observations, this_set_id){
   this_temporal_scale=model_sets %>% filter(set_id==this_set_id) %>% extract2('temporal_scale')
   this_spatial_scale=model_sets %>% filter(set_id==this_set_id) %>% extract2('spatial_scale')
+  
+  sp_observations$presence=1
+  
+  #Combine each observations with it's assocated bioclim data
+  sp_data = sp_observations %>%
+    right_join(dplyr::filter(aggregated_bioclim_data, set_id==this_set_id), by='spatial_cell_id') %>%
+    mutate(presence=ifelse(is.na(presence), 0, 1)) 
+  
+  
+  
+  
   
   #Get the window ID for all the years, which assigns years for temporal averaging according to the
   #temporal scale of this set ID
@@ -226,10 +231,10 @@ processSpDataToWindowSize=function(spData, this_set_id){
     gather(Year, temporal_cell_id, -temporal_scale, -set_id, -spatial_scale, -offset) %>%
     dplyr::select(Year, temporal_cell_id)
   
-  spData$Year=as.factor(spData$Year) #change to factor to work in join
+  sp_observations$Year=as.factor(sp_observations$Year) #change to factor to work in join
   
   #Summarize presence across the window ID's of this temporal scale
-  spData=spData %>%
+  sp_observations=sp_observations %>%
     left_join(thisSetYears, by='Year') %>%
     dplyr::select(Aou, cellID, temporal_cell_id) %>%
     distinct() %>%
@@ -241,7 +246,7 @@ processSpDataToWindowSize=function(spData, this_set_id){
   x=  siteDataMatrix %>%
     filter(set_id==this_set_id) %>%
     dplyr::select(-cellSize) %>%
-    left_join(spData, by=c('cellID','temporal_cell_id')) %>%  
+    left_join(sp_observations, by=c('cellID','temporal_cell_id')) %>%  
     mutate(presence=ifelse(is.na(presence), 0, 1)) 
   
   return(x)
@@ -289,16 +294,14 @@ finalDF=foreach(thisSpp=unique(occData$Aou), .combine=rbind, .packages=c('dplyr'
 #finalDF=foreach(thisSpp=focal_spp, .combine=rbind, .packages=c('dplyr','tidyr','magrittr','DBI','RPostgreSQL')) %dopar% {
   thisSppResults=data.frame()
   for(this_set_id in model_sets$set_id){
-    this_spatial_scale=model_sets %>% filter(set_id==this_set_id) %>% extract2('spatial_scale')
-    this_temporal_scale=model_sets %>% filter(set_id==this_set_id) %>% extract2('temporal_scale')
-    this_offset=model_sets %>% filter(set_id==this_set_id) %>% extract2('offset')
-    
-    
+    this_spatial_scale=model_sets %>% filter(set_id==this_set_id) %>% extract2('spatial_scale') %>% unique()
+    this_temporal_scale=model_sets %>% filter(set_id==this_set_id) %>% extract2('temporal_scale') %>% unique()
+
     #Process the data. excluding sites with low coverage, add bioclim variables, aggregating years into single widow size 
     #occurance, labeling those occurances, etc. 
-    thisSppData=dplyr::filter(occData, Aou==thisSpp, cellSize==this_spatial_scale)
-    if(nrow(thisSppData)==0){next}
-    thisSppData=processSpDataToWindowSize(spData=thisSppData,this_set_id=this_set_id)
+    this_sp_observations=dplyr::filter(occData, Aou==thisSpp, spatial_scale==this_spatial_scale)
+    if(nrow(this_sp_observations)==0){next}
+    thisSppData=process_sp_observations(sp_observations=this_sp_observations,this_set_id=this_set_id)
     thisSppData$Aou=thisSpp
     
     #Only use species that have >20 sites with at least 1 occurance
