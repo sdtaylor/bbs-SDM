@@ -17,27 +17,14 @@ args=commandArgs(trailingOnly = TRUE)
 #If the 1st argument is na (ie, no argument), then this script is being run inside rstudio
 if(is.na(args[1])){
   print('Running locally (probably rstudio)')
-  dataFolder='~/data/bbs/'
   numProcs=2
-  resultsFile=paste('./results/bbsSDMResults.csv',sep='')
-  #rawResultsFile='./results/bbsSDMResultsRaw.csv'
-  rawResultsFile='./results/bbsSDMResultsRaw.sqlite'
-
 } else if(args[1]=='local') {
   print('Running locally (probably cli)')
   dataFolder='~/data/bbs/'
   numProcs=2
-  resultsFile=paste('./results/bbsSDMResults.csv',sep='')
-  rawResultsFile='./results/bbsSDMResultsRaw.csv'
-  
 } else if(args[1]=='hipergator') {
   print('Running on hipergator')
-  #dataFolder='/scratch/lfs/shawntaylor/data/bbs/'
-  dataFolder='/ufrc/ewhite/shawntaylor/data/bbs/'
   numProcs=16
-  resultsFile='./results/bbsSDMResults.csv'
-  rawResultsFile='/scratch/lfs/shawntaylor/data/bbs/bbsSDMResults_ManyTimePeriods_Raw.csv'
-  
 }
 
 ####################################################################

@@ -1,6 +1,9 @@
 #bioclim data folder. Used to store yearly rasters of bioclim vars made from prism data
 bioclim_data_folder='~/data/yearly_bioclim/'
 
+dataFolder='~/data/bbs/'
+
+resultsFile=paste('./results/bbs_results_method1.csv',sep='')
 
 training_years=1971:1980
 testing_years=2000:2014
@@ -10,7 +13,7 @@ temporal_scales=c(1,3,5,10)
 
 #Spatial scale to use. 
 #in Deg lat/long
-spatial_scales=c(0.1, 1.0, 2.0)
+spatial_scales=c(0.1, 1.0, 2.0, 4.0)
 #spatial_scales=c(0.1, 0.25, 0.5, 1.0, 2.0)
 #in km
 #spatial_scales=c(11,  28,   56,  111, 212)
