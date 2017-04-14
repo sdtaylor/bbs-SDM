@@ -105,6 +105,7 @@ make_bioclim_from_prism = function(prism_year_stacked, year){
 
 ########################################################
 #Convert all availableyears of prism data to bioclim vars
+#Aggregate to the defined unite scale of 40km cells
 ########################################################
 convert_prism_to_raster=function(){
   for(this_year in c(testing_years, training_years)){
@@ -112,7 +113,8 @@ convert_prism_to_raster=function(){
       dplyr::filter(grepl(as.character(this_year),files))
 
     this_year_stack = prism_stack(this_year_files)
-  
+    this_year_stack = raster::aggregate(this_year_stack, fact=10, fun=mean)
+    
     make_bioclim_from_prism(this_year_stack, this_year)
       
     
