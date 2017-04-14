@@ -207,6 +207,11 @@ finalDF=foreach(thisSpp=unique(occData$Aou), .combine=rbind, .packages=c('dplyr'
     dplyr::left_join(thisSpp_occurances, by=c('siteID','year')) %>%
     dplyr::mutate(presence = ifelse(is.na(presence), 0, presence))
   
+  #Skip rare species that end up with a low sample size after all the  filtering
+  if(sum(thisSpp_data_training$presence)<100){
+    next()
+  }
+  
   model=gbm(modelFormula, n.trees=5000, distribution = 'bernoulli', interaction.depth = 4, shrinkage=0.001, 
             data= thisSpp_data_training)
   perf=gbm.perf(model, plot.it=FALSE)
@@ -214,7 +219,7 @@ finalDF=foreach(thisSpp=unique(occData$Aou), .combine=rbind, .packages=c('dplyr'
   thisSpp_data_testing = bioclim_data_testing %>%
     dplyr::left_join(thisSpp_occurances, by=c('siteID','year')) %>%
     dplyr::mutate(presence = ifelse(is.na(presence), 0, presence))
-  
+
   predictions = thisSpp_data_testing %>%
     dplyr::select(siteID, year, presence) 
   
