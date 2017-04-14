@@ -209,7 +209,7 @@ finalDF=foreach(thisSpp=unique(occData$Aou), .combine=rbind, .packages=c('dplyr'
   
   #Skip rare species that end up with a low sample size after all the  filtering
   if(sum(thisSpp_data_training$presence)<100){
-    next()
+    return(data.frame())
   }
   
   model=gbm(modelFormula, n.trees=5000, distribution = 'bernoulli', interaction.depth = 4, shrinkage=0.001, 
