@@ -100,7 +100,7 @@ process_bioclim_data=function(){
     
     all_bioclim_files = list.files(bioclim_data_folder, full.names = TRUE)
     all_bioclim_files = all_bioclim_files[!grepl('xml', all_bioclim_files)]
-    bioclim_stack = raster::stack(all_bioclim_files[1:5])
+    bioclim_stack = raster::stack(all_bioclim_files)
     
     locations = spTransform(locations, crs(bioclim_stack))
     
