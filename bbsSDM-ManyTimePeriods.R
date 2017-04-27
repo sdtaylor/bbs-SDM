@@ -4,6 +4,7 @@ library(doParallel)
 library(magrittr)
 library(stringr)
 library(DBI)
+library(gbm)
 
 ####################################################################################
 #Adjustments based on where this script is being run.
@@ -17,27 +18,13 @@ args=commandArgs(trailingOnly = TRUE)
 #If the 1st argument is na (ie, no argument), then this script is being run inside rstudio
 if(is.na(args[1])){
   print('Running locally (probably rstudio)')
-  dataFolder='~/data/bbs/'
   numProcs=2
-  resultsFile=paste('./results/bbsSDMResults.csv',sep='')
-  #rawResultsFile='./results/bbsSDMResultsRaw.csv'
-  rawResultsFile='./results/bbsSDMResultsRaw.sqlite'
-
 } else if(args[1]=='local') {
   print('Running locally (probably cli)')
-  dataFolder='~/data/bbs/'
   numProcs=2
-  resultsFile=paste('./results/bbsSDMResults.csv',sep='')
-  rawResultsFile='./results/bbsSDMResultsRaw.csv'
-  
 } else if(args[1]=='hipergator') {
   print('Running on hipergator')
-  #dataFolder='/scratch/lfs/shawntaylor/data/bbs/'
-  dataFolder='/ufrc/ewhite/shawntaylor/data/bbs/'
   numProcs=16
-  resultsFile='./results/bbsSDMResults.csv'
-  rawResultsFile='/scratch/lfs/shawntaylor/data/bbs/bbsSDMResults_ManyTimePeriods_Raw.csv'
-  
 }
 
 ####################################################################
@@ -103,9 +90,11 @@ bioclimData = bioclimData %>%
 
 
 #####################################################################
-# Define how years will be aggregated in all the temporal scales
-# Also define "sets", sets being each unique spatiotemporal grain size. 
-define_year_aggregations=function(year_list){
+#Define all the different model sets. A single set is a specific spatial/temporal grain combination.
+#ie. Set 1 is a spatial grain size of 40km and temporal grain size of 1 year
+#set 45 is (potentially) a spatial grain size of 100km and temporal grain size of 3 years.
+#The model_sets data.frame also holds info on how the adjacent individual years will be aggregated into larger grains 
+define_year_aggregations=function(year_list, data_type){
   model_sets=data.frame()
   set_id=1
   num_years = length(year_list)
@@ -131,15 +120,16 @@ define_year_aggregations=function(year_list){
       model_sets=bind_rows(model_sets, thisSetDF)
     }
   }
+  model_sets$data_type=data_type
   return(model_sets)
 }
 
-model_sets = define_year_aggregations(testing_years) %>%
-  bind_rows(define_year_aggregations(training_years))
+model_sets = define_year_aggregations(training_years, data_type = 'training') %>%
+   bind_rows(define_year_aggregations(testing_years, data_type = 'testing'))
 
 #####################################################################
-#Convert sites to cells
-#Enforce a minimum number of sites within each cell.
+#Information on the spatial aggregation of indivudal sites.
+#Also enforce a minimum number of sites within each spatiotemporal cell.
 #######################################################################
 #What sites are within what cells at all scales.
 #combine with what years each of those sites is sampled. 
@@ -165,33 +155,30 @@ spatial_grid_info = spatial_grid_info %>%
 site_id_cell_id=get_spatial_grid_info()
 
 #####################################################################
-#Build site information for each set_id
-#Also ensure a minimum number of years covered in the temporal scales
+#Build site bioclim data for each grain size (defined by set id's)
 #######################################################################
-#Filter sites based on coverage within a particular temporal_cell_id
-#calculate weather data for all those sites. 
 aggregated_bioclim_data=data.frame()
 
 for(this_set_id in unique(model_sets$set_id)){
-  #Get the yearly aggregations to use (ie. set1: 80-84, set2: 85-89, etc) and other info about this set
   this_set_years=model_sets %>% filter(set_id==this_set_id) 
   this_spatial_scale=unique(this_set_years$spatial_scale)
   this_temporal_scale=unique(this_set_years$temporal_scale)
-  this_set_years=this_set_years %>% dplyr::select(Year, temporal_cell_id)
+  this_set_years=this_set_years %>% dplyr::select(Year, temporal_cell_id, data_type)
   
   #Temporal aggregation
   this_set_bioclim=bioclimData %>%
     filter(year %in% c(training_years, testing_years), spatial_scale==this_spatial_scale) %>%
     rename(Year=year) %>%
     left_join(this_set_years, by='Year') %>%
-    group_by(temporal_cell_id, bioclim_var, spatial_cell_id) %>%
+    group_by(temporal_cell_id, bioclim_var, spatial_cell_id, data_type) %>%
     summarize(value=mean(value)) %>%
     ungroup() 
 
   this_set_bioclim$set_id=this_set_id
   
   aggregated_bioclim_data = bind_rows(aggregated_bioclim_data, this_set_bioclim)
-  }
+}
+
 rm(this_set_years, this_temporal_scale, this_set_id, bioclimData)
 
 ###################################################################
@@ -209,47 +196,37 @@ occData=occData %>%
 #-Inserts absences; -splits years into specified window sizes (temporal_cell_id's);
 #
 ###################################################################
-process_sp_observations=function(sp_observations, this_set_id){
-  this_temporal_scale=model_sets %>% filter(set_id==this_set_id) %>% extract2('temporal_scale')
-  this_spatial_scale=model_sets %>% filter(set_id==this_set_id) %>% extract2('spatial_scale')
+process_sp_observations=function(sp_observations, this_set_id, this_data_type){
+  this_temporal_scale=model_sets %>% filter(set_id==this_set_id) %>% extract2('temporal_scale') %>% unique()
+  this_spatial_scale=model_sets %>% filter(set_id==this_set_id) %>% extract2('spatial_scale') %>% unique()
+  
+  sp_observations$presence=1
+  
+  #Convert the years in the observations to temporal_cell_ids
+  this_set_years=model_sets %>% 
+    filter(set_id==this_set_id, data_type==this_data_type) %>% 
+    dplyr::select(Year, temporal_cell_id)
+  
+  sp_observations = sp_observations %>%
+    left_join(this_set_years, by='Year') %>%
+    dplyr::select(-Year) %>%
+    distinct()
   
   sp_observations$presence=1
   
   #Combine each observations with it's assocated bioclim data
-  sp_data = sp_observations %>%
-    right_join(dplyr::filter(aggregated_bioclim_data, set_id==this_set_id), by='spatial_cell_id') %>%
-    mutate(presence=ifelse(is.na(presence), 0, 1)) 
+  bioclim_data = aggregated_bioclim_data %>%
+    dplyr::filter(set_id == this_set_id, data_type==this_data_type)
   
+  sp_data = bioclim_data %>%
+    left_join(sp_observations, by=c('spatial_cell_id','temporal_cell_id')) %>%
+    mutate(presence=ifelse(is.na(presence), 0, 1)) %>%
+    dplyr::filter(temporal_cell_id>0)
   
+  sp_data = sp_data %>%
+    spread(bioclim_var, value)
   
-  
-  
-  #Get the window ID for all the years, which assigns years for temporal averaging according to the
-  #temporal scale of this set ID
-  thisSetYears=model_sets %>% 
-    filter(set_id==this_set_id) %>% 
-    gather(Year, temporal_cell_id, -temporal_scale, -set_id, -spatial_scale, -offset) %>%
-    dplyr::select(Year, temporal_cell_id)
-  
-  sp_observations$Year=as.factor(sp_observations$Year) #change to factor to work in join
-  
-  #Summarize presence across the window ID's of this temporal scale
-  sp_observations=sp_observations %>%
-    left_join(thisSetYears, by='Year') %>%
-    dplyr::select(Aou, cellID, temporal_cell_id) %>%
-    distinct() %>%
-    mutate(presence=1)
-  
-  #Merge with the site data matrix to get absences & bioclim data at the same time
-  #this is a left_join here because siteDataMatrix only includes sites that have been
-  #filtered for adequate coverage inside the temporal and spatial scales. 
-  x=  siteDataMatrix %>%
-    filter(set_id==this_set_id) %>%
-    dplyr::select(-cellSize) %>%
-    left_join(sp_observations, by=c('cellID','temporal_cell_id')) %>%  
-    mutate(presence=ifelse(is.na(presence), 0, 1)) 
-  
-  return(x)
+  return(sp_data)
 }
 
 ##################################################################
@@ -276,12 +253,12 @@ updateResults=function(results){
 }
 
 #####################################################################
-#Iterate thru spp, building SDM's for each windowsize, offset, and model.
+#Iterate thru spp, building SDM's for each windowsize, and model.
 #Parallel processing happens over the ~250 species
 ####################################################################
 #Whether to write results to the postgres DB or keep in a local DF.
 #Keeping it in a local DF is used for testing on a small number of species. 
-writeToDB=TRUE
+writeToDB=FALSE
 
 #focal_spp=c(7360, #Carolina chickadee
 #           6010, #painted bunting
@@ -290,105 +267,63 @@ writeToDB=TRUE
 #)
 
 #finalDF=foreach(thisSpp=unique(occData$Aou)[1:3], .combine=rbind, .packages=c('dplyr','tidyr','magrittr','DBI')) %do% {
-finalDF=foreach(thisSpp=unique(occData$Aou), .combine=rbind, .packages=c('dplyr','tidyr','magrittr','DBI','RPostgreSQL')) %dopar% {
+finalDF=foreach(thisSpp=unique(occData$Aou), .combine=rbind, .packages=c('dplyr','tidyr','magrittr','DBI','RPostgreSQL','gbm')) %dopar% {
 #finalDF=foreach(thisSpp=focal_spp, .combine=rbind, .packages=c('dplyr','tidyr','magrittr','DBI','RPostgreSQL')) %dopar% {
   thisSppResults=data.frame()
-  for(this_set_id in model_sets$set_id){
+  for(this_set_id in unique(model_sets$set_id)[1:2]){
     this_spatial_scale=model_sets %>% filter(set_id==this_set_id) %>% extract2('spatial_scale') %>% unique()
     this_temporal_scale=model_sets %>% filter(set_id==this_set_id) %>% extract2('temporal_scale') %>% unique()
 
-    #Process the data. excluding sites with low coverage, add bioclim variables, aggregating years into single widow size 
-    #occurance, labeling those occurances, etc. 
+    #Process the species observations to to presence/absence in aggregated cells & add in bioclim data
     this_sp_observations=dplyr::filter(occData, Aou==thisSpp, spatial_scale==this_spatial_scale)
-    if(nrow(this_sp_observations)==0){next}
-    thisSppData=process_sp_observations(sp_observations=this_sp_observations,this_set_id=this_set_id)
-    thisSppData$Aou=thisSpp
+    
+    #Skip rare species that end up with a low sample size after all the  filtering
+    training_sample_size = this_sp_observations %>%
+      filter(Year %in% training_years) %>%
+      nrow()
+    if(training_sample_size < 100){next}
+    
+    thisSpp_training_data= this_sp_observations %>%
+      filter(Year %in% training_years) %>%
+      process_sp_observations(this_set_id=this_set_id, this_data_type = 'training')
+    
+    thisSpp_testing_data= this_sp_observations %>%
+      filter(Year %in% testing_years) %>%
+      process_sp_observations(this_set_id=this_set_id, this_data_type = 'testing')
     
     #Only use species that have >20 sites with at least 1 occurance
     #in the training period
-    if( thisSppData %>%
-            filter(temporal_cell_id==1, presence==1) %>%
-            dplyr::select(cellID) %>%
-            distinct() %>%
-            nrow() < 20 ) { 
-      print('Skipping, too few occurances')
-      next }
-    
-    #Most models need presence/absence treated as factors.
-    thisSppData$presence = as.factor(thisSppData$presence)
-
-    # -1 temporal_cell_id was just years that didn't eventy divide into this window size. Don't need them any more
-    #thisSppData = thisSppData %>%
-    #  filter(temporal_cell_id != (-1))
-
-    #A template to create results for each model in modelsToUse
-    modelResultsTemplate=thisSppData %>%
-      dplyr::select(presence, cellID, set_id, temporal_cell_id)
-    
-    #All the different model results for this set will be pasted together in here
-    modelResults=data.frame()
-    
-    #Source the model script here inside the parallel loop so the packages get loaded in all the parallel threads.
-    source('bbsSDMModels-ManyTimePeriods.R')
-    
-    #Iterate thru all the models. They are trained on T1 and tested/validated on T2-Tn. Results are returned for *all* timeperiods.
-    #Don't record stuff that cause model errrors
-    for(thisModel in modelsToUse){
-      
-      predictions=try(sdmModels(data=thisSppData, modelName=thisModel, modelFormula=modelFormula))
-      if(class(predictions)!='try-error'){
-
-        modelResultsTemplate$modelName=thisModel
-        modelResultsTemplate$prediction=predictions
-        
-        modelResults=modelResults %>%
-          bind_rows(modelResultsTemplate)
-      }
-    }
-    
-    #Setup a results dataframe for TV validation plot accuracy. 
-    #for each site in each window ID this creates a T1_actual and T2_actual. 
-    #Note there are many T2's to compare (from ever increasing gap between time), but only a single T1. 
-    #This pulls out the T1 (always temporal_cell_id 1) and copies it over all the T2 (every other temporal_cell_id)
-    #with left_join, and renames things accordingly
-    
-    #modelResults = modelResults %>%
-    #  filter(temporal_cell_id!=1) %>%
-    #  rename(T2_actual=presence, T2_prob=prediction) %>%
-    #  left_join(  filter(modelResults, temporal_cell_id==1) %>% 
-    #                dplyr::select(presence, cellID, modelName, prediction) %>% 
-    #                rename(T1_actual=presence, T1_prob=prediction), by=c('cellID','modelName'))
+  #  if( thisSppData %>%
+  #          filter(temporal_cell_id==1, presence==1) %>%
+  #          dplyr::select(cellID) %>%
+  #          distinct() %>%
+  #          nrow() < 20 ) { 
+  #    print('Skipping, too few occurances')
+   #   next }
     
 
+    model=gbm(modelFormula, n.trees=5000, distribution = 'bernoulli', interaction.depth = 4, shrinkage=0.001, 
+              data= thisSpp_training_data)
+    perf=gbm.perf(model, plot.it=FALSE)
+    #model=glm(modelFormula, family='binomial', data= thisSpp_training_data)
+    thisSpp_testing_data$prediction = predict(model, n.trees=perf, newdata=thisSpp_testing_data, type='response')
     
-    #Get temporal validation plot accuracy from Rapacciuolo et al. 2014
-    #Not using this at the moment. So model results will be the predictions and 
-    #observations for every species/site/model/windowsize. 
-    #source('bbsSDM-temporal_validaton_accuracy.R')
-    #modelResults=getAccuracyTV(modelResults)
+    score=fractions_skill_score(thisSpp_testing_data$presence, thisSpp_testing_data$prediction)
 
     #Species and window size for this set of models. 
-    modelResults = modelResults %>%
-      mutate(Aou=thisSpp,set_id=this_set_id, cellSize=this_spatial_scale, temporal_scale=this_temporal_scale, offset=this_offset) 
+    thisSppResults = thisSppResults %>%
+      bind_rows(data.frame(Aou=thisSpp,set_id=this_set_id, spatial_scale=this_spatial_scale, temporal_scale=this_temporal_scale, score=score) )
     
 
-    
-    #Append results to the database results table or the results DF
-    if(writeToDB){
-      updateResults(modelResults)
-    } else {
-      #add results to final dataframe to be written as a csv - CSV Output
-      thisSppResults=bind_rows(thisSppResults, modelResults)
-    }
-    
-    
   } 
-  #This gets returned to be added to the finalDF dataframe. 
-  #Not needed when writing results to DB - CSV OutPut
-  if(!writeToDB){
+  #Append results to the database results table or return to foreach()
+  if(writeToDB){
+    updateResults(thisSppResults)
+  } else {
     return(thisSppResults)
   }
 }
 
-#Not needed when writing results to DB
-#write.csv(finalDF,resultsFile,row.names = FALSE)
+if(!writeToDB){
+  write.csv(finalDF,resultsFile,row.names = FALSE)
+}

@@ -25,3 +25,12 @@ get_spatial_grid_info=function(){
     stop("spatial_grid_info not found, need to run load_scaled_bioclim.R")
   } 
 }
+
+###########################################################
+#Fractions skill score from Roberts and Lean 2008
+########################################################
+fractions_skill_score = function(y_obs, y_pred){
+  numerator   = mean((y_pred - y_obs)^2)
+  denominator = sum(y_pred^2 + y_obs^2) / length(y_obs)
+  return(1 - (numerator/denominator))
+}

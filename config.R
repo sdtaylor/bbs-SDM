@@ -1,7 +1,11 @@
 
 database=src_sqlite('./bbs_method2_data.sqlite', create = T)
 
+resultsFile='./results/bbs_results_method2.csv'
+
 bioclim_data_folder='~/data/yearly_bioclim/'
+
+dataFolder='~/data/bbs/'
 
 #Window sizes to use. This is the temporal scale
 #windowSizes=c(1,2,3,4,5,6,7,8,9,10,11,12,13,14)
