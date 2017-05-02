@@ -22,3 +22,8 @@ spatial_scales=c(0.4, 0.8, 1.6, 3.2)
 
 # Formula to pass to models
 modelFormula=as.formula('presence ~ bio1+bio2+bio4+bio5+bio6+bio7+bio8+bio9+bio10+bio11+bio12+bio13+bio14+bio16+bio17+bio18+bio19')
+
+
+#Verbose results save site specific predictions. This can get *very* big
+save_verbose_results = TRUE
+verbsoe_results_filename = './results/bbs_results_method2_verbose.csv'
