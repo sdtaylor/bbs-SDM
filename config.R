@@ -26,4 +26,4 @@ modelFormula=as.formula('presence ~ bio1+bio2+bio4+bio5+bio6+bio7+bio8+bio9+bio1
 
 #Verbose results save site specific predictions. This can get *very* big
 save_verbose_results = TRUE
-verbsoe_results_filename = './results/bbs_results_method2_verbose.csv'
+verbose_results_filename = './results/bbs_results_method2_verbose.csv'
