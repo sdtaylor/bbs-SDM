@@ -1,7 +1,6 @@
 
 database=src_sqlite('./bbs_method2_data.sqlite', create = T)
 
-resultsFile='./results/bbs_results_method2.csv'
 
 bioclim_data_folder='~/data/yearly_bioclim/'
 
@@ -26,4 +25,9 @@ modelFormula=as.formula('presence ~ bio1+bio2+bio4+bio5+bio6+bio7+bio8+bio9+bio1
 
 #Verbose results save site specific predictions. This can get *very* big
 save_verbose_results = TRUE
-verbose_results_filename = './results/bbs_results_method2_verbose.csv'
+
+if(save_verbose_results){
+  resultsFile = './results/bbs_results_method2_verbose.csv'
+} else {
+  resultsFile='./results/bbs_results_method2.csv'
+}

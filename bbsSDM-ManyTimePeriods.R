@@ -260,8 +260,6 @@ updateResults=function(results){
 #Keeping it in a local DF is used for testing on a small number of species. 
 writeToDB=FALSE
 
-verbose_results = data.frame()
-
 #focal_spp=c(7360, #Carolina chickadee
 #           6010, #painted bunting
 #            3100, #wild turky
@@ -269,7 +267,7 @@ verbose_results = data.frame()
 #)
 
 #finalDF=foreach(thisSpp=unique(occData$Aou)[1:3], .combine=rbind, .packages=c('dplyr','tidyr','magrittr','DBI')) %do% {
-finalDF=foreach(thisSpp=unique(occData$Aou), .combine=rbind, .packages=c('dplyr','tidyr','magrittr','DBI','RPostgreSQL','gbm')) %dopar% {
+finalDF=foreach(thisSpp=c(3320, 4080, 5110), .combine=rbind, .packages=c('dplyr','tidyr','magrittr','DBI','RPostgreSQL','gbm')) %dopar% {
 #finalDF=foreach(thisSpp=focal_spp, .combine=rbind, .packages=c('dplyr','tidyr','magrittr','DBI','RPostgreSQL')) %dopar% {
   thisSppResults=data.frame()
   for(this_set_id in unique(model_sets$set_id)){
@@ -317,15 +315,13 @@ finalDF=foreach(thisSpp=unique(occData$Aou), .combine=rbind, .packages=c('dplyr'
     score=fractions_skill_score(thisSpp_testing_data$presence, thisSpp_testing_data$prediction)
 
     if(save_verbose_results){
-      verbose_results = verbose_results %>%
+      thisSppResults = thisSppResults %>%
         bind_rows(select(thisSpp_testing_data, temporal_cell_id, spatial_cell_id, set_id, Aou, spatial_scale, temporal_scale, presence, prediction))
-      
+    } else {
+      #Species and window size for this set of models. 
+      thisSppResults = thisSppResults %>%
+        bind_rows(data.frame(Aou=thisSpp,set_id=this_set_id, spatial_scale=this_spatial_scale, temporal_scale=this_temporal_scale, score=score) )
     }
-    
-    #Species and window size for this set of models. 
-    thisSppResults = thisSppResults %>%
-      bind_rows(data.frame(Aou=thisSpp,set_id=this_set_id, spatial_scale=this_spatial_scale, temporal_scale=this_temporal_scale, score=score) )
-    
 
   } 
   #Append results to the database results table or return to foreach()
