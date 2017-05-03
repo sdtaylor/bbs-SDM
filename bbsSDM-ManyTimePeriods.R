@@ -311,12 +311,18 @@ finalDF=foreach(thisSpp=c(3320, 4080, 5110), .combine=rbind, .packages=c('dplyr'
     thisSpp_testing_data$temporal_scale = this_temporal_scale
     thisSpp_testing_data$spatial_scale  = this_spatial_scale
     
+    thisSpp_training_data$prediction = predict(model, n.trees=perf, newdata=thisSpp_training_data, type='response')
+    thisSpp_training_data$Aou = thisSpp
+    thisSpp_training_data$temporal_scale = this_temporal_scale
+    thisSpp_training_data$spatial_scale  = this_spatial_scale
     
     score=fractions_skill_score(thisSpp_testing_data$presence, thisSpp_testing_data$prediction)
 
     if(save_verbose_results){
       thisSppResults = thisSppResults %>%
-        bind_rows(select(thisSpp_testing_data, temporal_cell_id, spatial_cell_id, set_id, Aou, spatial_scale, temporal_scale, presence, prediction))
+        bind_rows(select(thisSpp_testing_data, data_type, temporal_cell_id, spatial_cell_id, set_id, Aou, spatial_scale, temporal_scale, presence, prediction)) %>%
+        bind_rows(select(thisSpp_training_data, data_type, temporal_cell_id, spatial_cell_id, set_id, Aou, spatial_scale, temporal_scale, presence, prediction))
+      
     } else {
       #Species and window size for this set of models. 
       thisSppResults = thisSppResults %>%
