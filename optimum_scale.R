@@ -9,10 +9,10 @@ spatial_scale_conversion = data.frame(spatial_scale_km=c(40, 80, 160, 320),
 results = results %>%
   left_join(spatial_scale_conversion, by='spatial_scale')
 
-x= results %>%
-  filter(Aou==3320, set_id==16)
+#x= results %>%
+#  filter(Aou==3320, set_id==1)
 
-
+#forecast outcomes given binary predictions
 outcomes = data.frame(presence=c(0,1,1,0),
                       prediction=c(1,1,0,0),
                       type=c('fp','tp','fn','tn'))
@@ -55,27 +55,64 @@ calculate_cost = function(df, treatment_cost, loss_cost, threshold, forecast_typ
 #possible_loss_costs = seq(1,500,10)
 
 treatment_cost = 10
-possible_loss_costs = 10 / seq(0.01, 1, 0.01)
+possible_loss_costs = 10 / seq(0.11, 1, 0.01)
+#Add in denser estimates for low values of C/L
+possible_loss_costs = c(possible_loss_costs, 10 / seq(0.001, 0.1, 0.001))
 
-training_data = x %>%
-  filter(data_type == 'training')
+#training_data = x %>%
+#  filter(data_type == 'training')
 
-optimal_threshold = get_threshold(training_data$presence, training_data$prediction)
+#optimal_threshold = get_threshold(training_data$presence, training_data$prediction)
 
 cost_results = data.frame()
 
-for(loss_cost in possible_loss_costs){
-  #for(treatment_cost in possible_treatment_costs){
-    cost_results = cost_results %>%
-      bind_rows(data.frame('a'= treatment_cost/ loss_cost,
-                           'cost_forecast' = calculate_cost(x, treatment_cost=treatment_cost, loss_cost=loss_cost, threshold = optimal_threshold, forecast_type='forecast'),
-                           'cost_perfect' = calculate_cost(x, treatment_cost=treatment_cost, loss_cost=loss_cost, threshold = optimal_threshold, forecast_type='perfect'),
-                           'cost_never' = calculate_cost(x, treatment_cost=treatment_cost, loss_cost=loss_cost, threshold = optimal_threshold, forecast_type='never'),
-                           'cost_always' = calculate_cost(x, treatment_cost=treatment_cost, loss_cost=loss_cost, threshold = optimal_threshold, forecast_type='always')))
-  #}
+for(species in unique(results$Aou)){
+
+  smallest_grain_data_training = results %>%
+    filter(Aou == species, set_id==1, data_type=='training')
+  smallest_grain_data_testing = results %>%
+    filter(Aou == species, set_id==1, data_type=='testing')
+  smallest_grain_optimal_threshold = with(smallest_grain_data_training, get_threshold(presence, prediction))
+  for(loss_cost in possible_loss_costs){
+    smallest_grain_cost_perfect = calculate_cost(smallest_grain_data_testing, treatment_cost=treatment_cost, loss_cost=loss_cost, threshold = smallest_grain_optimal_threshold, forecast_type='perfect')
+    smallest_grain_cost_never = calculate_cost(smallest_grain_data_testing, treatment_cost=treatment_cost, loss_cost=loss_cost, threshold = smallest_grain_optimal_threshold, forecast_type='never')
+
+    for(this_set_id in unique(results$set_id)){
+      this_set_data_training = results %>%
+        filter(Aou == species, set_id==this_set_id, data_type=='training')
+      this_set_data_testing = results %>%
+        filter(Aou == species, set_id==this_set_id, data_type=='testing')
+      
+      this_set_optimal_threshold = with(this_set_data_training, get_threshold(presence, prediction))
+      
+      
+      this_set_cost_forecast = calculate_cost(this_set_data_testing, treatment_cost=treatment_cost, loss_cost=loss_cost, threshold = this_set_optimal_threshold, forecast_type='forecast')
+      this_set_cost_always = calculate_cost(this_set_data_testing, treatment_cost=treatment_cost, loss_cost=loss_cost, threshold = this_set_optimal_threshold, forecast_type='always')
+      
+      
+      this_spatial_scale = unique(this_set_data_training$spatial_scale_km)
+      this_temporal_scale = unique(this_set_data_training$temporal_scale)
+      
+      cost_results = cost_results %>%
+        bind_rows(data.frame('aou'=species, 'spatial_scale'=this_spatial_scale, 'temporal_scale'=this_temporal_scale, 'a'=treatment_cost/loss_cost,
+                             'cost_forecast'=this_set_cost_forecast, 'cost_perfect'=smallest_grain_cost_perfect,
+                             'cost_always'=this_set_cost_always, 'cost_never'=smallest_grain_cost_never))
+    }
+  
+  
+  }
 }
 
 #eq. 8.3
 cost_results$cost_climate = with(cost_results, pmin(cost_always, cost_never))
 #eq 8.5
 cost_results$value = with(cost_results, (cost_climate - cost_forecast) / (cost_climate - cost_perfect))
+
+
+
+
+
+#############################################
+ggplot(filter(cost_results, value>0, spatial_scale==40), aes(y=value, x=a, color=as.factor(temporal_scale), group=as.factor(temporal_scale))) + 
+  geom_point() + 
+  geom_line()
