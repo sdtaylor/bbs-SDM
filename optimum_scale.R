@@ -9,8 +9,8 @@ spatial_scale_conversion = data.frame(spatial_scale_km=c(40, 80, 160, 320),
 results = results %>%
   left_join(spatial_scale_conversion, by='spatial_scale')
 
-#x= results %>%
-#  filter(Aou==3320, set_id==1)
+results = read.csv('test_forecast.csv')
+
 
 #forecast outcomes given binary predictions
 outcomes = data.frame(presence=c(0,1,1,0),
@@ -44,7 +44,8 @@ calculate_cost = function(df, treatment_cost, loss_cost, threshold, forecast_typ
   total_cost = (treatment_cost * total_treated_area_years) + (loss_cost * total_fn_area_years)
 
   total_sqkm = length(unique(df$spatial_cell_id)) * spatial_scale_km^2
-  total_sqkm_yr = total_sqkm * temporal_scale
+  total_sqkm_yr = total_sqkm *  length(unique(df$temporal_cell_id)) * temporal_scale
+  print(paste(total_sqkm, total_sqkm_yr))
   
   return(total_cost/total_sqkm_yr)  
 }
@@ -72,7 +73,8 @@ for(species in unique(results$Aou)){
     filter(Aou == species, set_id==1, data_type=='training')
   smallest_grain_data_testing = results %>%
     filter(Aou == species, set_id==1, data_type=='testing')
-  smallest_grain_optimal_threshold = with(smallest_grain_data_training, get_threshold(presence, prediction))
+  #smallest_grain_optimal_threshold = with(smallest_grain_data_training, get_threshold(presence, prediction))
+  smallest_grain_optimal_threshold = 0.5
   for(loss_cost in possible_loss_costs){
     smallest_grain_cost_perfect = calculate_cost(smallest_grain_data_testing, treatment_cost=treatment_cost, loss_cost=loss_cost, threshold = smallest_grain_optimal_threshold, forecast_type='perfect')
     smallest_grain_cost_never = calculate_cost(smallest_grain_data_testing, treatment_cost=treatment_cost, loss_cost=loss_cost, threshold = smallest_grain_optimal_threshold, forecast_type='never')
@@ -83,15 +85,17 @@ for(species in unique(results$Aou)){
       this_set_data_testing = results %>%
         filter(Aou == species, set_id==this_set_id, data_type=='testing')
       
-      this_set_optimal_threshold = with(this_set_data_training, get_threshold(presence, prediction))
+      #if(nrow(this_set_data_training)==0){next()}
       
+      #this_set_optimal_threshold = with(this_set_data_training, get_threshold(presence, prediction))
+      this_set_optimal_threshold=0.5
       
       this_set_cost_forecast = calculate_cost(this_set_data_testing, treatment_cost=treatment_cost, loss_cost=loss_cost, threshold = this_set_optimal_threshold, forecast_type='forecast')
       this_set_cost_always = calculate_cost(this_set_data_testing, treatment_cost=treatment_cost, loss_cost=loss_cost, threshold = this_set_optimal_threshold, forecast_type='always')
       
       
-      this_spatial_scale = unique(this_set_data_training$spatial_scale_km)
-      this_temporal_scale = unique(this_set_data_training$temporal_scale)
+      this_spatial_scale = unique(this_set_data_testing$spatial_scale_km)
+      this_temporal_scale = unique(this_set_data_testing$temporal_scale)
       
       cost_results = cost_results %>%
         bind_rows(data.frame('aou'=species, 'spatial_scale'=this_spatial_scale, 'temporal_scale'=this_temporal_scale, 'a'=treatment_cost/loss_cost,
@@ -113,6 +117,7 @@ cost_results$value = with(cost_results, (cost_climate - cost_forecast) / (cost_c
 
 
 #############################################
-ggplot(filter(cost_results, value>0, spatial_scale==40), aes(y=value, x=a, color=as.factor(temporal_scale), group=as.factor(temporal_scale))) + 
+ggplot(filter(cost_results, value>0, aou<5000), aes(y=value, x=a, color=as.factor(temporal_scale), group=as.factor(temporal_scale))) + 
   geom_point() + 
-  geom_line()
+  geom_line() +
+  facet_grid(spatial_scale~aou)
