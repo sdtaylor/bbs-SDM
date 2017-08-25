@@ -188,14 +188,16 @@ registerDoParallel(cl)
 #Iterate thru spp, building SDM's for each windowsize, offset, and model.
 #Parallel processing happens over the ~250 species
 ####################################################################
-#focal_spp=c(7360, #Carolina chickadee
-#           6010, #painted bunting
-#            3100, #wild turky
-#            4100 #Golden-fronted Woodpecker
-#)
+focal_spp=c(7360, #Carolina chickadee
+           6010, #painted bunting
+            #3100, #wild turky
+            4100 #Golden-fronted Woodpecker
+)
+
+return_site_level_predictions=TRUE
 
 #finalDF=foreach(thisSpp=unique(occData$Aou)[1:3], .combine=rbind, .packages=c('dplyr','tidyr','magrittr','DBI')) %do% {
-finalDF=foreach(thisSpp=unique(occData$Aou), .combine=rbind, .packages=c('dplyr','tidyr','gbm')) %dopar% {
+finalDF=foreach(thisSpp=focal_spp, .combine=rbind, .packages=c('dplyr','tidyr','gbm')) %dopar% {
 #finalDF=foreach(thisSpp=focal_spp, .combine=rbind, .packages=c('dplyr','tidyr','magrittr','DBI','RPostgreSQL')) %dopar% {
   this_spp_results=data.frame()
   
@@ -212,10 +214,11 @@ finalDF=foreach(thisSpp=unique(occData$Aou), .combine=rbind, .packages=c('dplyr'
     return(data.frame())
   }
   
-  model=gbm(modelFormula, n.trees=5000, distribution = 'bernoulli', interaction.depth = 4, shrinkage=0.001, 
-            data= thisSpp_data_training)
-  perf=gbm.perf(model, plot.it=FALSE)
-
+  #model=gbm(modelFormula, n.trees=5000, distribution = 'bernoulli', interaction.depth = 4, shrinkage=0.001, 
+  #          data= thisSpp_data_training)
+  #perf=gbm.perf(model, plot.it=FALSE)
+  model = glm(modelFormula, family='binomial', data=thisSpp_data_training)
+  
   thisSpp_data_testing = bioclim_data_testing %>%
     dplyr::left_join(thisSpp_occurances, by=c('siteID','year')) %>%
     dplyr::mutate(presence = ifelse(is.na(presence), 0, presence))
@@ -233,29 +236,33 @@ finalDF=foreach(thisSpp=unique(occData$Aou), .combine=rbind, .packages=c('dplyr'
       scaled_prediction = testing_cell_info %>%
         dplyr::filter(spatial_scale == this_spatial_scale, temporal_scale == this_temporal_scale) %>%
         dplyr::left_join(predictions, by=c('siteID','year')) %>%
-        dplyr::filter(!is.na(presence)) %>%
-        group_by(spatial_cell_id, temporal_cell_id) %>%
-        summarize(presence = max(presence), prediction = ifelse(n()==1, prediction, 1-prod(1-prediction))) %>%
-        ungroup()
+        dplyr::filter(!is.na(presence))
+        #group_by(spatial_cell_id, temporal_cell_id) %>%
+        #summarize(presence = max(presence), prediction = max((prediction>0.5)*1) ) %>%
+        #ungroup()
       
       scaled_prediction$temporal_scale = this_temporal_scale
       scaled_prediction$spatial_scale = this_spatial_scale
       
-      all = all %>% bind_rows(scaled_prediction)
+      #all = all %>% bind_rows(scaled_prediction)
       
-      score=fractions_skill_score(scaled_prediction$presence, scaled_prediction$prediction)
+      #score=fractions_skill_score(scaled_prediction$presence, scaled_prediction$prediction)
 
-      this_spp_results = this_spp_results %>%
-        dplyr::bind_rows(data.frame(Aou=thisSpp, spatial_scale=this_spatial_scale, temporal_scale=this_temporal_scale, score=score))
-
+      if(return_site_level_predictions){
+        this_spp_results = this_spp_results %>%
+          dplyr::bind_rows(scaled_prediction)
+      } else{
+        this_spp_results = this_spp_results %>%
+          dplyr::bind_rows(data.frame(Aou=thisSpp, spatial_scale=this_spatial_scale, temporal_scale=this_temporal_scale, score=score))
+      }
     }
   }
-  
+  this_spp_results$Aou=thisSpp
   return(this_spp_results)
  
 }
 
 finalDF$dataset='bbs_method1'
-write.csv(finalDF, resultsFile, row.names = FALSE)
+write_csv(finalDF, resultsFile)
 
 
