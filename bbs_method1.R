@@ -220,8 +220,8 @@ focal_spp=c(7360, #Carolina chickadee
 
 return_site_level_predictions=TRUE
 
-#finalDF=foreach(thisSpp=unique(occData$Aou)[1:3], .combine=rbind, .packages=c('dplyr','tidyr','magrittr','DBI')) %do% {
-finalDF=foreach(thisSpp=focal_spp, .combine=rbind, .packages=c('dplyr','tidyr','gbm')) %dopar% {
+finalDF=foreach(thisSpp=unique(occData$Aou), .combine=rbind, .packages=c('dplyr','tidyr','magrittr','DBI')) %do% {
+#finalDF=foreach(thisSpp=focal_spp, .combine=rbind, .packages=c('dplyr','tidyr','gbm')) %dopar% {
 #finalDF=foreach(thisSpp=focal_spp, .combine=rbind, .packages=c('dplyr','tidyr','magrittr','DBI','RPostgreSQL')) %dopar% {
   this_spp_results=data.frame()
   
@@ -283,6 +283,6 @@ finalDF=foreach(thisSpp=focal_spp, .combine=rbind, .packages=c('dplyr','tidyr','
 }
 
 finalDF$dataset='bbs_method1'
-write_csv(finalDF, resultsFile)
+readr::write_csv(finalDF, resultsFile)
 
 
