@@ -6,7 +6,10 @@ dataFolder='~/data/bbs/'
 resultsFile=paste('./results/bbs_results_method1.csv',sep='')
 
 training_years=1971:1980
-testing_years=2000:2014
+testing_years=2001:2010
+
+#Mininum years in either the training or testing period to keep a site
+minimum_years = 5
 
 #Grain sizes in time and space
 temporal_scales=c(1,3,5,10)

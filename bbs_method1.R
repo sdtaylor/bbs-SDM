@@ -82,11 +82,24 @@ occData=occData %>%
   dplyr::select(-runtype, -RPID)
 
 #A list of sites and the years they were sampled. To be used in making absences for 
-#species occurances
+#species occurances. Keep only sites with the minium specified number of years in the
+#10 year period.
 all_routes_surveyed = occData %>%
   dplyr::select(year, siteID) %>%
-  distinct() 
+  distinct() %>%
+  mutate(timeframe = ifelse(year %in% training_years, 'training','testing')) %>%
+  group_by(timeframe, siteID) %>%
+  summarize(num_years_sampled = n()) %>%
+  ungroup() %>%
+  filter(num_years_sampled>=minimum_years) %>%
+  select(-num_years_sampled)
 
+#Aggregate the  occurances down to presence in training/testing periods only
+occData = occData %>%
+  mutate(timeframe = ifelse(year %in% training_years, 'training','testing')) %>%
+  select(Aou, siteID, timeframe) %>%
+  distinct()
+  
 #bioclim values for all bbs routes from PRISM data.
 bioclim_data=get_bioclim_data()
 
@@ -94,19 +107,29 @@ bioclim_data=get_bioclim_data()
 bioclim_data = bioclim_data %>%
   filter(!is.na(bio1))
 
-#Only keep data for sites that were actually surveyed in a particular year
-bioclim_data = all_routes_surveyed %>%
-  dplyr::select(year, siteID) %>%
-  dplyr::mutate(keep='yes') %>%
-  dplyr::right_join(bioclim_data, by=c('siteID','year')) %>%
-  dplyr::filter(keep=='yes') %>%
-  dplyr::select(-keep)
+#Only keep data for sites that were actually surveyed
+bioclim_data = bioclim_data %>%
+  filter(siteID %in% all_routes_surveyed$siteID)
 
+
+  # dplyr::select(year, siteID) %>%
+  # dplyr::mutate(keep='yes') %>%
+  # dplyr::right_join(bioclim_data, by=c('siteID','year')) %>%
+  # dplyr::filter(keep=='yes') %>%
+  # dplyr::select(-keep)
+
+#Split into train and test and aggregate
 bioclim_data_training = bioclim_data %>%
-  dplyr::filter(year %in% training_years)
+  dplyr::filter(year %in% training_years) %>%
+  select(-year) %>%
+  group_by(siteID) %>%
+  summarise_all(mean)
 
 bioclim_data_testing = bioclim_data %>%
-  dplyr::filter(year %in% testing_years)
+  dplyr::filter(year %in% testing_years) %>%
+  select(-year) %>%
+  group_by(siteID) %>%
+  summarise_all(mean)
 
 ######################################################################
 #Prepare spatial and temporal aggregation info for all sites
@@ -125,58 +148,59 @@ for(this_spatial_scale in spatial_scales){
 }
 
 #Assign each year to a temporal cell.
-temporal_grid_info = data.frame()
-for(this_temporal_scale in temporal_scales){
-  num_temporal_cells = floor(length(testing_years)/this_temporal_scale)
-  
-  cell_identifier=c()
-  for(i in 1:this_temporal_scale){
-    cell_identifier=c(cell_identifier, 1:num_temporal_cells)
-  }
-  cell_identifier=sort(cell_identifier)
-  
-  while(length(cell_identifier) < length(testing_years)){
-    cell_identifier = c(cell_identifier,NA)
-  }
-  
-  temporal_grid_info = temporal_grid_info %>%
-    dplyr::bind_rows(data.frame(temporal_cell_id = cell_identifier, year=testing_years, temporal_scale = this_temporal_scale))
-}
+# temporal_grid_info = data.frame()
+# for(this_temporal_scale in temporal_scales){
+#   num_temporal_cells = floor(length(testing_years)/this_temporal_scale)
+#   
+#   cell_identifier=c()
+#   for(i in 1:this_temporal_scale){
+#     cell_identifier=c(cell_identifier, 1:num_temporal_cells)
+#   }
+#   cell_identifier=sort(cell_identifier)
+#   
+#   while(length(cell_identifier) < length(testing_years)){
+#     cell_identifier = c(cell_identifier,NA)
+#   }
+#   
+#   temporal_grid_info = temporal_grid_info %>%
+#     dplyr::bind_rows(data.frame(temporal_cell_id = cell_identifier, year=testing_years, temporal_scale = this_temporal_scale))
+# }
 
 all_routes_surveyed = all_routes_surveyed %>%
-  left_join(spatial_grid_info, by='siteID') %>%
-  left_join(temporal_grid_info, by='year')
+  left_join(spatial_grid_info, by='siteID')
+  #left_join(temporal_grid_info, by='year')
 
 #Remove some NA values due to some temporal scales not dividing equally into number of testing years
 all_routes_surveyed = all_routes_surveyed[complete.cases(all_routes_surveyed),]
 
 #Restrict upscaled cells in the verification to ones that have a minimum number of sites within them.
-#Minimum sites are the median number of sites for that spatial/temporal scale
+#Minimum sites are the median number of sites for that spatial scale
 median_cell_counts = all_routes_surveyed %>%
-  dplyr::filter(year %in% testing_years) %>%
-  dplyr::group_by(spatial_scale, temporal_scale, spatial_cell_id, temporal_cell_id) %>%
-  dplyr::tally() %>%
+  dplyr::filter(timeframe == 'testing') %>%
+  dplyr::group_by(spatial_scale, spatial_cell_id) %>%
+  dplyr::summarize(num_sites = n()) %>%
   dplyr::ungroup() %>%
-  dplyr::group_by(spatial_scale, temporal_scale) %>%
-  dplyr::summarise(median_site_count = median(n)) %>%
+  dplyr::group_by(spatial_scale) %>%
+  dplyr::summarise(median_site_count = median(num_sites)) %>%
   dplyr::ungroup()
 
-#this data.frame stores how the sites are aggregated within each spatiotemporal grain size. 
+#this data.frame stores how the sites are aggregated within each spatial grain size.
+#Also filters out any cells that don't meet the minimum site requirement.  
 testing_cell_info = all_routes_surveyed %>%
-  dplyr::group_by(spatial_scale, temporal_scale, spatial_cell_id, temporal_cell_id) %>%
+  dplyr::group_by(spatial_scale, spatial_cell_id) %>%
   dplyr::tally() %>%
   dplyr::ungroup() %>%
-  dplyr::left_join(median_cell_counts, by=c('spatial_scale','temporal_scale')) %>%
+  dplyr::left_join(median_cell_counts, by='spatial_scale') %>%
   dplyr::filter(n>=median_site_count) %>%
   dplyr::select(-median_site_count, -n) %>%
-  dplyr::left_join(all_routes_surveyed, by=c('spatial_scale','temporal_scale','spatial_cell_id','temporal_cell_id'))
+  dplyr::left_join(all_routes_surveyed, by=c('spatial_scale', 'spatial_cell_id'))
 
 #Final tallys of effective sample size. for information only. 
 #final_counts = testing_cell_info %>%
 #  dplyr::group_by(spatial_scale, temporal_scale) %>%
 #  dplyr::summarize(n=n())
 
-rm(grid, grid_info, num_temporal_cells, cell_identifier, temporal_grid_info, spatial_grid_info, median_cell_counts)
+rm(grid, grid_info, num_temporal_cells, cell_identifier, spatial_grid_info, median_cell_counts)
 
 ###################################################################
 #Setup parallel processing
@@ -205,8 +229,9 @@ finalDF=foreach(thisSpp=focal_spp, .combine=rbind, .packages=c('dplyr','tidyr','
     dplyr::filter(Aou==thisSpp) %>%
     dplyr::mutate(presence=1)
   
-  thisSpp_data_training = bioclim_data_training %>%
-    dplyr::left_join(thisSpp_occurances, by=c('siteID','year')) %>%
+  thisSpp_data_training = thisSpp_occurances %>%
+    filter(timeframe == 'training') %>%
+    dplyr::right_join(bioclim_data_training, by = 'siteID') %>%
     dplyr::mutate(presence = ifelse(is.na(presence), 0, presence))
   
   #Skip rare species that end up with a low sample size after all the  filtering
@@ -214,49 +239,44 @@ finalDF=foreach(thisSpp=focal_spp, .combine=rbind, .packages=c('dplyr','tidyr','
     return(data.frame())
   }
   
-  #model=gbm(modelFormula, n.trees=5000, distribution = 'bernoulli', interaction.depth = 4, shrinkage=0.001, 
-  #          data= thisSpp_data_training)
-  #perf=gbm.perf(model, plot.it=FALSE)
-  model = glm(modelFormula, family='binomial', data=thisSpp_data_training)
+  model=gbm(modelFormula, n.trees=5000, distribution = 'bernoulli', interaction.depth = 4, shrinkage=0.001, 
+            data= thisSpp_data_training)
+  perf=gbm.perf(model, plot.it=FALSE)
+  #model = glm(modelFormula, family='binomial', data=thisSpp_data_training)
   
-  thisSpp_data_testing = bioclim_data_testing %>%
-    dplyr::left_join(thisSpp_occurances, by=c('siteID','year')) %>%
+  thisSpp_data_testing = thisSpp_occurances %>%
+    filter(timeframe == 'testing') %>%
+    dplyr::right_join(bioclim_data_testing, by = 'siteID') %>%
     dplyr::mutate(presence = ifelse(is.na(presence), 0, presence))
 
   predictions = thisSpp_data_testing %>%
-    dplyr::select(siteID, year, presence) 
+    dplyr::select(siteID, presence) 
   
   predictions$prediction = predict(model, n.trees=perf, newdata=thisSpp_data_testing, type='response')
   
-  all=data.frame()
-  
-  for(this_temporal_scale in temporal_scales){
     for(this_spatial_scale in spatial_scales){
       
-      scaled_prediction = testing_cell_info %>%
-        dplyr::filter(spatial_scale == this_spatial_scale, temporal_scale == this_temporal_scale) %>%
-        dplyr::left_join(predictions, by=c('siteID','year')) %>%
-        dplyr::filter(!is.na(presence))
-        #group_by(spatial_cell_id, temporal_cell_id) %>%
-        #summarize(presence = max(presence), prediction = max((prediction>0.5)*1) ) %>%
-        #ungroup()
-      
-      scaled_prediction$temporal_scale = this_temporal_scale
-      scaled_prediction$spatial_scale = this_spatial_scale
-      
-      #all = all %>% bind_rows(scaled_prediction)
-      
-      #score=fractions_skill_score(scaled_prediction$presence, scaled_prediction$prediction)
+    scaled_prediction = testing_cell_info %>%
+      dplyr::filter(spatial_scale == this_spatial_scale) %>%
+      dplyr::left_join(predictions, by='siteID') %>%
+      dplyr::filter(!is.na(presence))
+      #group_by(spatial_cell_id, temporal_cell_id) %>%
+      #summarize(presence = max(presence), prediction = max((prediction>0.5)*1) ) %>%
+      #ungroup()
+    
+    scaled_prediction$spatial_scale = this_spatial_scale
 
-      if(return_site_level_predictions){
-        this_spp_results = this_spp_results %>%
-          dplyr::bind_rows(scaled_prediction)
-      } else{
-        this_spp_results = this_spp_results %>%
-          dplyr::bind_rows(data.frame(Aou=thisSpp, spatial_scale=this_spatial_scale, temporal_scale=this_temporal_scale, score=score))
-      }
+    score=fractions_skill_score(scaled_prediction$presence, scaled_prediction$prediction)
+
+    if(return_site_level_predictions){
+      this_spp_results = this_spp_results %>%
+        dplyr::bind_rows(scaled_prediction)
+    } else{
+      this_spp_results = this_spp_results %>%
+        dplyr::bind_rows(data.frame(Aou=thisSpp, spatial_scale=this_spatial_scale, score=score))
     }
   }
+
   this_spp_results$Aou=thisSpp
   return(this_spp_results)
  
