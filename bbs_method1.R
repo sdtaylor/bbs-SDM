@@ -92,12 +92,12 @@ all_routes_surveyed = occData %>%
   summarize(num_years_sampled = n()) %>%
   ungroup() %>%
   filter(num_years_sampled>=minimum_years) %>%
-  select(-num_years_sampled)
+  dplyr::select(-num_years_sampled)
 
 #Aggregate the  occurances down to presence in training/testing periods only
 occData = occData %>%
   mutate(timeframe = ifelse(year %in% training_years, 'training','testing')) %>%
-  select(Aou, siteID, timeframe) %>%
+  dplyr::select(Aou, siteID, timeframe) %>%
   distinct()
   
 #bioclim values for all bbs routes from PRISM data.
@@ -121,13 +121,13 @@ bioclim_data = bioclim_data %>%
 #Split into train and test and aggregate
 bioclim_data_training = bioclim_data %>%
   dplyr::filter(year %in% training_years) %>%
-  select(-year) %>%
+  dplyr::select(-year) %>%
   group_by(siteID) %>%
   summarise_all(mean)
 
 bioclim_data_testing = bioclim_data %>%
   dplyr::filter(year %in% testing_years) %>%
-  select(-year) %>%
+  dplyr::select(-year) %>%
   group_by(siteID) %>%
   summarise_all(mean)
 
