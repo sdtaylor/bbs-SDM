@@ -239,10 +239,12 @@ finalDF=foreach(thisSpp=unique(occData$Aou), .combine=rbind, .packages=c('dplyr'
     return(data.frame())
   }
   
-  model=gbm(modelFormula, n.trees=5000, distribution = 'bernoulli', interaction.depth = 4, shrinkage=0.001, 
-            data= thisSpp_data_training)
-  perf=gbm.perf(model, plot.it=FALSE)
-  #model = glm(modelFormula, family='binomial', data=thisSpp_data_training)
+  #model=gbm(modelFormula, n.trees=5000, distribution = 'bernoulli', interaction.depth = 4, shrinkage=0.001, 
+  #          data= thisSpp_data_training)
+  #perf=gbm.perf(model, plot.it=FALSE)
+  model = glm(modelFormula, family='binomial', data=thisSpp_data_training)
+  model=step(model, direction='both')
+  
   
   thisSpp_data_testing = thisSpp_occurances %>%
     filter(timeframe == 'testing') %>%
@@ -252,7 +254,7 @@ finalDF=foreach(thisSpp=unique(occData$Aou), .combine=rbind, .packages=c('dplyr'
   predictions = thisSpp_data_testing %>%
     dplyr::select(siteID, presence) 
   
-  predictions$prediction = predict(model, n.trees=perf, newdata=thisSpp_data_testing, type='response')
+  predictions$prediction = predict(model, newdata=thisSpp_data_testing, type='response')
   
     for(this_spatial_scale in spatial_scales){
       
