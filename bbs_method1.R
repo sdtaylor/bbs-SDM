@@ -187,13 +187,14 @@ median_cell_counts = all_routes_surveyed %>%
 #this data.frame stores how the sites are aggregated within each spatial grain size.
 #Also filters out any cells that don't meet the minimum site requirement.  
 testing_cell_info = all_routes_surveyed %>%
+  dplyr::filter(timeframe == 'testing') %>%
   dplyr::group_by(spatial_scale, spatial_cell_id) %>%
   dplyr::tally() %>%
   dplyr::ungroup() %>%
   dplyr::left_join(median_cell_counts, by='spatial_scale') %>%
   dplyr::filter(n>=median_site_count) %>%
   dplyr::select(-median_site_count, -n) %>%
-  dplyr::left_join(all_routes_surveyed, by=c('spatial_scale', 'spatial_cell_id'))
+  dplyr::left_join(filter(all_routes_surveyed, timeframe=='testing'), by=c('spatial_scale', 'spatial_cell_id'))
 
 #Final tallys of effective sample size. for information only. 
 #final_counts = testing_cell_info %>%
@@ -220,7 +221,7 @@ focal_spp=c(7360, #Carolina chickadee
 
 return_site_level_predictions=TRUE
 
-finalDF=foreach(thisSpp=unique(occData$Aou), .combine=rbind, .packages=c('dplyr','tidyr','magrittr','DBI')) %dopar% {
+finalDF=foreach(thisSpp=unique(occData$Aou), .combine=rbind, .packages=c('dplyr','tidyr','magrittr','gbm')) %dopar% {
 #finalDF=foreach(thisSpp=focal_spp, .combine=rbind, .packages=c('dplyr','tidyr','gbm')) %dopar% {
 #finalDF=foreach(thisSpp=focal_spp, .combine=rbind, .packages=c('dplyr','tidyr','magrittr','DBI','RPostgreSQL')) %dopar% {
   this_spp_results=data.frame()
@@ -239,12 +240,18 @@ finalDF=foreach(thisSpp=unique(occData$Aou), .combine=rbind, .packages=c('dplyr'
     return(data.frame())
   }
   
-  #model=gbm(modelFormula, n.trees=5000, distribution = 'bernoulli', interaction.depth = 4, shrinkage=0.001, 
-  #          data= thisSpp_data_training)
-  #perf=gbm.perf(model, plot.it=FALSE)
-  model = glm(modelFormula, family='binomial', data=thisSpp_data_training)
-  model=step(model, direction='both')
+  #Leave out 20% for model threshold selection 
+  calibration_samples = caret::createDataPartition(thisSpp_data_training$presence, p = 0.2, list = FALSE, times = 1)
   
+  model=gbm(modelFormula, n.trees=5000, distribution = 'bernoulli', interaction.depth = 4, shrinkage=0.001, 
+            data= thisSpp_data_training[-calibration_samples,])
+  perf=gbm.perf(model, plot.it=FALSE)
+  #model = glm(modelFormula, family='binomial', data=thisSpp_data_training)
+  #model=step(model, direction='both')
+  
+  thisSpp_data_training$prediction = predict(model, n.trees = perf, newdata = thisSpp_data_training, type='response')
+  
+  threshold = with(thisSpp_data_training[calibration_samples,], get_threshold(presence, prediction))
   
   thisSpp_data_testing = thisSpp_occurances %>%
     filter(timeframe == 'testing') %>%
@@ -254,9 +261,10 @@ finalDF=foreach(thisSpp=unique(occData$Aou), .combine=rbind, .packages=c('dplyr'
   predictions = thisSpp_data_testing %>%
     dplyr::select(siteID, presence) 
   
-  predictions$prediction = predict(model, newdata=thisSpp_data_testing, type='response')
+  predictions$prediction = predict(model, n.trees = perf, newdata=thisSpp_data_testing, type='response')
+  predictions$prediction = (predictions$prediction > threshold) * 1
   
-    for(this_spatial_scale in spatial_scales){
+  for(this_spatial_scale in spatial_scales){
       
     scaled_prediction = testing_cell_info %>%
       dplyr::filter(spatial_scale == this_spatial_scale) %>%

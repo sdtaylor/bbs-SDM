@@ -75,3 +75,38 @@ fractions_skill_score = function(y_obs, y_pred){
   return(1 - (numerator/denominator))
 }
 
+###########################################################
+#Choose a probability threshold by maximizing specificity + sensitivity
+###########################################################
+
+sensitivity = function(observed, predicted){
+  correctly_predicted = observed==predicted
+  
+  tp=sum(correctly_predicted & predicted==1)
+  fn=sum((!correctly_predicted) & predicted==0)
+  return( sum(tp) / (sum(tp)+sum(fn)) )
+}
+
+specificity = function(observed, predicted){
+  correctly_predicted = observed==predicted
+  
+  tn=sum(correctly_predicted & predicted==0)
+  fp=sum((!correctly_predicted) & predicted==1)
+  return( sum(tn) / (sum(tn)+sum(fp)) )
+}
+
+get_threshold = function(observed, predicted){
+  max_sss=0
+  threshold=0
+  for(t in seq(0.01, 0.99, 0.01)){
+    predicted_binary = ifelse(predicted>t, 1,0)
+    
+    sens=sensitivity(observed, predicted_binary)
+    spec=specificity(observed, predicted_binary)
+    if(sens + spec > max_sss){
+      max_sss=(sens+spec)
+      threshold=t
+    }
+  }
+  return(threshold)
+}
