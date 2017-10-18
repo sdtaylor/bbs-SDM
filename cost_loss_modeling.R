@@ -21,7 +21,7 @@ outcomes = data.frame(presence=c(0,1,1,0),
 
 #Gives cost per km^2/yr in terms of prescribed treatment vs actual losses
 calculate_cost = function(df, treatment_cost, loss_cost, threshold=0, expense_type){
-  spatial_scale_km = unique(df$spatial_scale_km)
+  #spatial_scale_km = unique(df$spatial_scale_km)
 
   if(expense_type=='perfect'){
     df$prediction = df$presence
@@ -35,23 +35,24 @@ calculate_cost = function(df, treatment_cost, loss_cost, threshold=0, expense_ty
     stop('No forecast type')
   }
   
-  #Aggregate the sites together
+  #Apply upscaling to the forecasts
   df = df %>%
     group_by(spatial_cell_id) %>%
-    summarise(presence = max(presence), prediction=max(prediction))
+    mutate(prediction=max(prediction)) %>%
+    ungroup()
   
   
   df = df %>%
     left_join(outcomes, by=c('presence','prediction'))
   
-  total_tp_fp_area = sum(df$type %in% c('fp','tp')) * spatial_scale_km^2
-  total_fn_area      = sum(df$type == 'fn') * spatial_scale_km^2
-  total_cost = (treatment_cost * total_tp_fp_area) + (loss_cost * total_fn_area)
+  total_tp_fp_routes = sum(df$type %in% c('fp','tp')) 
+  total_fn_routes      = sum(df$type == 'fn') 
+  total_cost = (treatment_cost * total_tp_fp_routes) + (loss_cost * total_fn_routes)
   
-  total_sqkm = length(unique(df$spatial_cell_id)) * spatial_scale_km^2
-  print(paste(total_sqkm))
+  total_routes = length(unique(df$siteID))
+  print(paste(total_routes))
   
-  return(total_cost/total_sqkm)  
+  return(total_cost/total_routes)  
 }
 
 #######################################################################################
@@ -108,70 +109,77 @@ model_stats$mss = round(model_stats$mss,2)
 value_scores$expense_max = with(value_scores, pmin(expense_always, expense_never))
 value_scores$value = with(value_scores, (expense_max - expense_forecast)/(expense_max - expense_perfect))
 
-a_ratios_of_interest = c(0.01, 0.05, 0.25, 0.5, 0.75, 0.95)
 
+write_csv(value_scores, 'results/bbs_value_scores.csv')
 
-for(this_aou in unique(value_scores$Aou)[100:150]){
-  prevalence = model_stats %>%
-    filter(Aou==this_aou) %>%
-    pull(prevalence)
-  mss = model_stats %>%
-    filter(Aou==this_aou) %>%
-    pull(mss)
-  value_plot_title = paste(' Aou: ',this_aou,", prevalence: ",prevalence,", mss: ",mss)
-  ratio_value_plot=ggplot(filter(value_scores, Aou==this_aou), aes(y=value, x=a, color=as.factor(spatial_scale_km), group=as.factor(spatial_scale_km))) + 
-    #geom_point() + 
-    geom_line(size=1.5) +
-    ylim(0,1) +
-    theme(plot.title = element_text(size = 20),
-          axis.text = element_text(size = 30),
-          axis.title = element_text(size = 25),
-          legend.text = element_text(size = 15), 
-          legend.title = element_text(size = 20),
-          strip.text.x=element_text(size=22),
-          strip.text.y=element_text(size=22),
-          legend.key.width = unit(15, units = 'mm')) +
-    labs(title = value_plot_title,
-         color = 'Spatial Grain') 
-  
-  # ethans_plot = value_scores %>%
-  #   filter(a %in% a_ratios_of_interest, Aou==this_aou) %>%
-  #   ggplot(aes(x=spatial_scale_km, y=value, group=as.factor(a), color=as.factor(a))) + 
-  #   geom_line(size=2) +
-  #   geom_hline(yintercept = 0, size=1.5) +
-  #   scale_color_brewer(type='qual')
-  
-  
-  print(ratio_value_plot)
-  #print(ethans_plot)
-}
-
-a_ratios = c(0.01, 0.05, 0.25, 0.5, 0.75, 0.95)
-
-percentage_plot = value_scores %>%
-  filter(a %in% a_ratios) %>%
-  #filter(value>0) %>%
-  group_by(a, Aou) %>%
-  filter(value == max(value)) %>%
-  ungroup() %>%
-  mutate(spatial_scale_km = ifelse(value<0, 'None', spatial_scale_km)) %>%
-  group_by(a, spatial_scale_km) %>%
-  tally()
-
-
-
-
-ggplot(percentage_plot, aes(x=as.factor(a), y=n, fill=as.factor(spatial_scale_km))) +
-  geom_bar(position = 'fill', stat='identity') +
-  scale_fill_brewer(type='qual') + 
-  theme(plot.title = element_text(size = 30),
-        axis.text = element_text(size = 20),
-        axis.title = element_text(size = 22),
-        legend.text = element_text(size = 15), 
-        legend.title = element_text(size = 20),
-        strip.text.x=element_text(size=22),
-        strip.text.y=element_text(size=22),
-        legend.key.width = unit(15, units = 'mm')) +
-  labs(fill = 'Spatial Grain',
-       x='a') 
-
+##########################################################################
+# A bunch of stuff for debugging/exploring the value models
+# 
+# a_ratios_of_interest = c(0.01, 0.05, 0.25, 0.5, 0.75, 0.95)
+# 
+# 
+# for(this_aou in unique(value_scores$Aou)){
+#   prevalence = model_stats %>%
+#     filter(Aou==this_aou) %>%
+#     pull(prevalence)
+#   mss = model_stats %>%
+#     filter(Aou==this_aou) %>%
+#     pull(mss)
+#   value_plot_title = paste(' Aou: ',this_aou,", prevalence: ",prevalence,", mss: ",mss)
+#   ratio_value_plot=ggplot(filter(value_scores, Aou==this_aou), aes(y=value, x=a, color=as.factor(spatial_scale_km), group=as.factor(spatial_scale_km))) + 
+#     #geom_point() + 
+#     geom_line(size=1.5) +
+#     ylim(0,1) +
+#     theme(plot.title = element_text(size = 20),
+#           axis.text = element_text(size = 30),
+#           axis.title = element_text(size = 25),
+#           legend.text = element_text(size = 15), 
+#           legend.title = element_text(size = 20),
+#           strip.text.x=element_text(size=22),
+#           strip.text.y=element_text(size=22),
+#           legend.key.width = unit(15, units = 'mm')) +
+#     labs(title = value_plot_title,
+#          color = 'Spatial Grain') 
+#   
+#   # ethans_plot = value_scores %>%
+#   #   filter(a %in% a_ratios_of_interest, Aou==this_aou) %>%
+#   #   ggplot(aes(x=spatial_scale_km, y=value, group=as.factor(a), color=as.factor(a))) + 
+#   #   geom_line(size=2) +
+#   #   geom_hline(yintercept = 0, size=1.5) +
+#   #   scale_color_brewer(type='qual')
+#   
+#   
+#   print(ratio_value_plot)
+#   #print(ethans_plot)
+# }
+# 
+# a_ratios = c(0.01, 0.05, 0.25, 0.5, 0.75, 0.95)
+# 
+# percentage_plot = value_scores %>%
+#   filter(a %in% a_ratios) %>%
+#   #filter(value>0) %>%
+#   group_by(a, Aou) %>%
+#   filter(value == max(value)) %>%
+#   ungroup() %>%
+#   mutate(spatial_scale_km = ifelse(value<0, 'None', spatial_scale_km)) %>%
+#   group_by(a, spatial_scale_km) %>%
+#   tally()
+# 
+# grain_sizes=c(40,80,160,320)
+# pretty_grain_sizes = c('40')
+# 
+# 
+# ggplot(percentage_plot, aes(x=as.factor(a), y=n, fill=as.factor(spatial_scale_km))) +
+#   geom_bar(position = 'fill', stat='identity') +
+#   scale_fill_brewer(type='qual') + 
+#   theme(plot.title = element_text(size = 30),
+#         axis.text = element_text(size = 20),
+#         axis.title = element_text(size = 22),
+#         legend.text = element_text(size = 15), 
+#         legend.title = element_text(size = 20),
+#         strip.text.x=element_text(size=22),
+#         strip.text.y=element_text(size=22),
+#         legend.key.width = unit(15, units = 'mm')) +
+#   labs(fill = 'Spatial Grain',
+#        x='a') 
+# 
