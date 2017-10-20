@@ -30,16 +30,16 @@ calculate_cost = function(df, treatment_cost, loss_cost, threshold=0, expense_ty
   } else if(expense_type=='never') {
     df$prediction = 0
   } else if(expense_type=='forecast'){
-    #df$prediction = (df$prediction>=threshold)*1
+    #Apply upscaling to the forecasts only
+    df = df %>%
+      group_by(spatial_cell_id) %>%
+      mutate(prediction=max(prediction)) %>%
+      ungroup()
   } else {
     stop('No forecast type')
   }
   
-  #Apply upscaling to the forecasts
-  df = df %>%
-    group_by(spatial_cell_id) %>%
-    mutate(prediction=max(prediction)) %>%
-    ungroup()
+
   
   
   df = df %>%
@@ -89,15 +89,14 @@ for(this_aou in unique(site_level_predictions$Aou)){
       smallest_grain_expense_never = calculate_cost(smallest_grain_subset, treatment_cost = treatment_cost,
                                                       loss_cost=this_loss_cost, threshold=0, expense_type='never')
       a = treatment_cost/this_loss_cost
-      #for(this_threshold in c(0.05, 0.25, 0.5, 0.75, 0.95)){
-        subset_expense = calculate_cost(data_subset, treatment_cost = treatment_cost, loss_cost = this_loss_cost,
-                                       threshold=a, expense_type = 'forecast')
-        
-        value_scores = value_scores %>%
-          bind_rows(data.frame('Aou'=this_aou, 'spatial_scale_km'=this_spatial_scale, 'a'=a, threshold = a,
-                               'expense_forecast' = subset_expense, 'expense_perfect'=smallest_grain_expense_perfect, 
-                               'expense_always'=smallest_grain_expense_always, 'expense_never'=smallest_grain_expense_never))
-      #}
+      subset_expense = calculate_cost(data_subset, treatment_cost = treatment_cost, loss_cost = this_loss_cost,
+                                     threshold=a, expense_type = 'forecast')
+      
+      value_scores = value_scores %>%
+        bind_rows(data.frame('Aou'=this_aou, 'spatial_scale_km'=this_spatial_scale, 'a'=a, threshold = a,
+                             'expense_forecast' = subset_expense, 'expense_perfect'=smallest_grain_expense_perfect, 
+                             'expense_always'=smallest_grain_expense_always, 'expense_never'=smallest_grain_expense_never))
+      
     }
   }
 }
